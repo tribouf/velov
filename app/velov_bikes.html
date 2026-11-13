@@ -1,0 +1,381 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Vélo'v Vélos</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<style>
+:root{
+  --bg:#f6f5f2; --panel:#ffffff; --ink:#1d1f22; --muted:#6b6f76; --line:#e3e1dc; --sunk:#f0eeea;
+  --accent:#d6001c; --truck:#7b4fd6; --park:#cfcac2; --gap:#e7e3dc;
+  --chip:#f0eeea; --chip-on:#1d1f22; --chip-on-ink:#fff;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){ --bg:#121315; --panel:#1b1d20; --ink:#ecebe8; --muted:#9a9ea5; --line:#2c2f33; --sunk:#232629;
+    --park:#4a4d52; --gap:#2a2c30; --chip:#25282c; --chip-on:#ecebe8; --chip-on-ink:#121315; }
+}
+:root[data-theme="dark"]{ --bg:#121315; --panel:#1b1d20; --ink:#ecebe8; --muted:#9a9ea5; --line:#2c2f33; --sunk:#232629;
+  --park:#4a4d52; --gap:#2a2c30; --chip:#25282c; --chip-on:#ecebe8; --chip-on-ink:#121315; }
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;background:var(--bg);color:var(--ink);font:14px/1.4 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+#app{display:flex;height:100%}
+#panel{width:350px;flex:none;background:var(--panel);border-right:1px solid var(--line);overflow-y:auto;padding:18px 18px 24px;display:flex;flex-direction:column;gap:14px}
+#stage{flex:1;min-width:0;display:flex;flex-direction:column}
+#mapwrap{flex:1;position:relative;min-height:220px}
+#map{position:absolute;inset:0;background:var(--bg)}
+.leaflet-tile-pane{filter:grayscale(1) contrast(.92) brightness(1.04);opacity:.6}
+#tlwrap{flex:none;background:var(--panel);border-top:1px solid var(--line);padding:8px 14px 10px;max-height:46%;overflow-y:auto}
+#tlbar{display:flex;align-items:center;gap:10px;margin-bottom:4px}
+#play{width:34px;height:34px;border-radius:50%;border:0;background:var(--ink);color:var(--panel);font-size:14px;cursor:pointer;flex:none}
+#clock{font:700 20px/1 system-ui;font-variant-numeric:tabular-nums;letter-spacing:-.01em;min-width:62px}
+#tl{display:block;width:100%;cursor:pointer;touch-action:none}
+h1{font-size:18px;margin:0;letter-spacing:-.01em} h1 b{color:var(--accent)}
+.sub{color:var(--muted);font-size:12px}
+.label{font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin-bottom:6px}
+.row{display:flex;gap:8px;align-items:center}
+input[type=text],select{font:inherit;color:var(--ink);background:var(--chip);border:1px solid var(--line);border-radius:8px;padding:7px 9px;color-scheme:light dark;min-width:0}
+.btn{border:0;background:var(--ink);color:var(--panel);border-radius:9px;padding:8px 12px;font:inherit;font-size:13px;font-weight:600;cursor:pointer;white-space:nowrap}
+.btn.ghost{background:var(--chip);color:var(--ink);font-weight:500}
+.chips{display:flex;flex-wrap:wrap;gap:6px}
+.chip{border:0;background:var(--chip);color:var(--ink);padding:5px 9px;border-radius:999px;font:inherit;font-size:12.5px;cursor:pointer;display:inline-flex;align-items:center;gap:5px}
+.chip:hover{outline:1px solid var(--line)}
+.dot{width:10px;height:10px;border-radius:50%;display:inline-block;flex:none}
+[hidden]{display:none!important}
+.cards{display:flex;flex-direction:column;gap:8px}
+.card{border:1px solid var(--line);border-radius:12px;padding:10px 12px;display:flex;flex-direction:column;gap:6px;background:var(--panel)}
+.card.focus{border-color:var(--ink)}
+.card .top{display:flex;align-items:center;gap:8px}
+.card .num{font-weight:700;font-size:15px;font-variant-numeric:tabular-nums}
+.card .x{margin-left:auto;border:0;background:none;color:var(--muted);font-size:16px;cursor:pointer;padding:0 2px}
+.stats{display:grid;grid-template-columns:repeat(4,1fr);gap:4px}
+.stat{background:var(--sunk);border-radius:8px;padding:5px 6px;text-align:center}
+.stat b{display:block;font-size:14px;font-variant-numeric:tabular-nums}
+.stat span{font-size:12px;line-height:1.2;color:var(--muted);display:block}
+.stars{color:#e8a317;letter-spacing:1px}
+.now{font-size:12.5px}
+.live{display:inline-flex;align-items:center;gap:5px;font-size:12px;font-weight:600;color:#1f9d55}
+.live::before{content:"";width:7px;height:7px;border-radius:50%;background:#1f9d55;animation:blink 1.6s infinite}
+@keyframes blink{50%{opacity:.25}}
+.note{font-size:12px;color:var(--muted);margin:0}
+.empty{border:1px dashed var(--line);border-radius:12px;padding:14px;color:var(--muted);font-size:13px}
+.bikeicon{font:700 11px/1 system-ui;color:#fff;border-radius:999px;padding:3px 6px;white-space:nowrap;box-shadow:0 1px 3px rgba(0,0,0,.3);border:2px solid #fff;transform:translate(-50%,-50%);display:inline-block}
+.leaflet-tooltip{font:12.5px/1.35 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+@media (prefers-reduced-motion:reduce){ .live::before{animation:none} }
+@media (max-width:760px){ #app{flex-direction:column} #panel{width:auto;max-height:42vh;border-right:0;border-bottom:1px solid var(--line)} }
+</style>
+<script>/* inside the Vélo'v Control app the tab already names the page */
+try{ if(window.top!==window.self) document.documentElement.classList.add('embedded'); }catch(e){ document.documentElement.classList.add('embedded'); }</script>
+<style>html.embedded h1{display:none}
+@media (pointer:coarse){ .chip{min-height:40px} }</style>
+</head>
+<body>
+<div id="app">
+<aside id="panel">
+  <div>
+    <h1>Vélo'v <b>Vélos</b></h1>
+    <div class="sub" id="sub">Suivez un ou plusieurs vélos au fil d'une journée.</div>
+  </div>
+  <div>
+    <div class="label">Ajouter des vélos</div>
+    <div class="row">
+      <input type="text" id="addIn" inputmode="numeric" placeholder="n° de vélo, ex. 20128, 52488" style="flex:1" aria-label="Numéros de vélos">
+      <button class="btn" id="addBtn">Ajouter</button>
+    </div>
+    <p class="note" style="margin-top:6px">Plusieurs numéros séparés par des virgules ; 12 vélos au plus.</p>
+  </div>
+  <div id="busyBox" hidden>
+    <div class="label">Les plus actifs ce jour-là</div>
+    <div class="chips" id="busiest"></div>
+  </div>
+  <div class="row">
+    <div style="flex:1;min-width:0">
+      <div class="label">Journée</div>
+      <select id="day" style="width:100%" aria-label="Journée"></select>
+    </div>
+    <div style="padding-top:18px" id="liveBadge" hidden><span class="live">en direct</span></div>
+  </div>
+  <div class="cards" id="cards"></div>
+  <p class="note" id="foot">Une journée commence à la station où le vélo était garé. Les trajets sont connus à l'intervalle de relevé près ; un trait pointillé signale un déplacement non observé (relevés en pause, atelier ou camion).</p>
+</aside>
+<div id="stage">
+  <div id="mapwrap"><div id="map"></div></div>
+  <div id="tlwrap">
+    <div id="tlbar">
+      <button id="play" aria-label="Lecture">▶</button>
+      <span id="clock">--:--</span>
+      <div class="chips" id="speeds">
+        <button class="chip" data-s="5">5 min/s</button><button class="chip" data-s="15">15 min/s</button><button class="chip" data-s="60">1 h/s</button>
+      </div>
+      <span class="sub" id="tlNote" style="margin-left:auto"></span>
+    </div>
+    <svg id="tl" role="img" aria-label="Chronologie des vélos suivis"></svg>
+  </div>
+</div>
+</div>
+
+<script src="/static/velov_sky.js"></script>
+<script>
+const $ = id => document.getElementById(id);
+const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+const nf = n => Number(n).toLocaleString('fr-FR');
+const esc = s => String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const store = { get(k,d){ try{ const v=localStorage.getItem(k); return v?JSON.parse(v):d; }catch(e){ return d; } },
+                set(k,v){ try{ localStorage.setItem(k,JSON.stringify(v)); }catch(e){} } };
+const hhmm = m => { m=Math.max(0,Math.min(1440,m)); return String(Math.floor(m/60)%24).padStart(2,'0')+':'+String(Math.floor(m%60)).padStart(2,'0'); };
+const PALETTE = ['#d6001c','#2f6fd6','#1f9d55','#e8862a','#7b4fd6','#0f9fb3','#c2187a','#8a6d1c','#3d5a80','#e04f9a','#3a8f2a','#b5532a'];
+
+const qs = new URLSearchParams(location.search);
+let S = Object.assign({bikes:[], speed:15}, store.get('velovBikes',{}));
+if(qs.get('n')) S.bikes = [...new Set([...qs.get('n').split(/[,;\s]+/).map(Number).filter(Boolean), ...S.bikes])].slice(0,12);
+let D=null, T=0, playing=false, last=0, focus=null, timer=null, plans=[];
+
+const map = L.map('map',{zoomControl:true}).setView([45.76,4.85],13);
+L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19,
+  attribution:'&copy; contributeurs <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> · Données : Métropole de Lyon / JCDecaux'}).addTo(map);
+const sky = window.VelovSky ? VelovSky.attach(map) : null;
+const pathLayer = L.layerGroup().addTo(map), dotLayer = L.layerGroup().addTo(map);
+
+/* ---------- colours: stable per bike ---------- */
+function colourOf(n){ const i=S.bikes.indexOf(n); return PALETTE[(i<0?0:i)%PALETTE.length]; }
+
+/* ---------- geometry ---------- */
+const stLL = n => { const s=D.stations[n]; return s ? [s[1],s[2]] : null; };
+const stName = n => D.stations[n]?.[0] || ('station '+n);
+const minOf = t => (Date.parse(t)-Date.parse(D.start))/60000;
+const kmBetween = (a,b) => Math.hypot((b[1]-a[1])*78.6,(b[0]-a[0])*111.2);
+function arc(A,B,bend=.18){
+  const C=[(A[0]+B[0])/2-(B[1]-A[1])*bend*.708, (A[1]+B[1])/2+(B[0]-A[0])*bend/.708];
+  const pts=[]; for(let i=0;i<=18;i++){ const t=i/18,u=1-t; pts.push([u*u*A[0]+2*u*t*C[0]+t*t*B[0], u*u*A[1]+2*u*t*C[1]+t*t*B[1]]); } return pts;
+}
+const routes=new Map();
+const rk=(a,b)=>`${a[0].toFixed(4)},${a[1].toFixed(4)};${b[0].toFixed(4)},${b[1].toFixed(4)}`;
+function decodePoly(str){ const pts=[]; let i=0,lat=0,lng=0; while(i<str.length){ for(const k of [0,1]){ let b,sh=0,r=0; do{ b=str.charCodeAt(i++)-63; r|=(b&31)<<sh; sh+=5; }while(b>=32); const d=(r&1)?~(r>>1):(r>>1); if(k===0) lat+=d; else lng+=d; } pts.push([lat/1e5,lng/1e5]); } return pts; }
+function pathPts(a,b){ const A=stLL(a), B=stLL(b); if(!A||!B) return null; return routes.get(rk(A,B)) || arc(A,B); }
+function along(pts,f){ f=Math.max(0,Math.min(1,f)); const cum=[0]; for(let i=1;i<pts.length;i++) cum.push(cum[i-1]+kmBetween(pts[i-1],pts[i]));
+  const L_=cum[cum.length-1]*f; let i=1; while(i<cum.length-1&&cum[i]<L_) i++; const s=(cum[i]-cum[i-1])||1, t=(L_-cum[i-1])/s;
+  return [pts[i-1][0]+(pts[i][0]-pts[i-1][0])*t, pts[i-1][1]+(pts[i][1]-pts[i-1][1])*t]; }
+async function fetchRoutes(){
+  const pairs=[]; D.bikes.forEach(b=>b.trips.forEach(t=>{ if(t.loop) return; const A=stLL(t.from),B=stLL(t.to); if(A&&B&&!routes.has(rk(A,B))) pairs.push([A[0],A[1],B[0],B[1]]); }));
+  if(!pairs.length) return;
+  try{ const r=await fetch('/api/x/routes',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({pairs})}); const d=await r.json(); if(!r.ok) return;
+    let added=0; for(const [k,[poly]] of Object.entries(d.routes)) if(!routes.has(k)){ routes.set(k,decodePoly(poly)); added++; }
+    if(added){ plan(); drawPaths(); }
+    if(d.pending) setTimeout(fetchRoutes, Math.min(20000,3000+d.pending*1200));
+  }catch(e){}
+}
+
+/* ---------- a bike's day as segments ---------- */
+function plan(){
+  plans = D.bikes.map(b=>{
+    const segs=[]; let at=b.start, tm=0;
+    const sorted=b.trips.slice().sort((x,y)=>x.t1<y.t1?-1:1);
+    sorted.forEach(t=>{
+      const m0=Math.max(0,minOf(t.t0)), m1=Math.min(1440,minOf(t.t1));
+      if(at!=null && at!==t.from) segs.push({kind:'gap', from:at, to:t.from, m0:tm, m1:m0});   // moved without being seen
+      else if(at!=null || tm>0) segs.push({kind:'park', st:t.from, m0:tm, m1:m0});
+      else segs.push({kind:'park', st:t.from, m0:0, m1:m0});
+      const A=stLL(t.from), B=stLL(t.to), km=(A&&B)?kmBetween(A,B)*1.3:0;
+      const dur=t.loop ? Math.max(4,(m1-m0)*.6) : Math.min(Math.max(3, km/(b.type==='ELECTRICAL'?17:13.5)*60), Math.max(3,m1-m0));
+      const mid=(m0+m1)/2;
+      segs.push({kind:t.truck?'truck':t.loop?'loop':'ride', trip:t, from:t.from, to:t.to, m0, m1, s:mid-dur/2, f:mid+dur/2, pts: t.loop?null:pathPts(t.from,t.to)});
+      at=t.to; tm=m1;
+    });
+    const end = D.day===D.today ? Math.min(1440, (Date.now()-Date.parse(D.start))/60000) : (D.fetches.length?D.fetches[D.fetches.length-1]:1440);
+    if(at!=null) segs.push({kind:'park', st:at, m0:tm, m1:Math.max(tm,end)});
+    else if(b.now && D.day===D.today) segs.push({kind:'park', st:b.now.station, m0:0, m1:end});
+    // stats
+    const rides=segs.filter(s=>s.kind==='ride'||s.kind==='loop');
+    const km=b.trips.filter(t=>!t.loop&&!t.truck).reduce((a,t)=>a+(t.km||0),0);
+    const ridden=rides.reduce((a,s)=>a+(s.f-s.s),0);
+    const visited=new Set(segs.filter(s=>s.kind==='park').map(s=>s.st));
+    return {b, segs, stats:{trips:rides.length, km, ridden, visited:visited.size}};
+  });
+}
+function posAt(p, m){
+  for(const s of p.segs){
+    if(m<s.m0 || m>s.m1) continue;
+    if(s.kind==='park'){ const ll=stLL(s.st); return ll?{ll, moving:false, st:s.st}:null; }
+    if(s.kind==='gap'){ const ll=stLL(m<(s.m0+s.m1)/2?s.from:s.to); return ll?{ll,moving:false,unknown:true}:null; }
+    if(s.kind==='loop'){ const ll=stLL(s.from); if(!ll) return null; const inRide=m>=s.s&&m<=s.f; return {ll, moving:inRide, loop:inRide}; }
+    if(m<s.s){ const ll=stLL(s.from); return ll?{ll,moving:false,st:s.from}:null; }
+    if(m>s.f){ const ll=stLL(s.to); return ll?{ll,moving:false,st:s.to}:null; }
+    return s.pts ? {ll:along(s.pts,(m-s.s)/(s.f-s.s)), moving:true, seg:s} : null;
+  }
+  return null;
+}
+
+/* ---------- map ---------- */
+function arrow(pts, col){
+  const B=pts[pts.length-1], A=pts[Math.max(0,pts.length-3)], P=a=>map.latLngToLayerPoint(a);
+  const pb=P(B), pa=P(A), dx=pb.x-pa.x, dy=pb.y-pa.y, l=Math.hypot(dx,dy)||1, ux=dx/l, uy=dy/l, s=8;
+  const tip=L.point(pb.x-ux*3,pb.y-uy*3), b=L.point(tip.x-ux*s,tip.y-uy*s);
+  return L.polygon([tip,L.point(b.x-uy*s*.55,b.y+ux*s*.55),L.point(b.x+uy*s*.55,b.y-ux*s*.55)].map(p=>map.layerPointToLatLng(p)),{stroke:false,fillColor:col,fillOpacity:.9,interactive:false});
+}
+function drawPaths(){
+  pathLayer.clearLayers();
+  if(!D) return;
+  plans.forEach(p=>{
+    const col=colourOf(p.b.number), dim = focus!=null && focus!==p.b.number;
+    const op = dim ? .15 : .85;
+    let order=0; const stops=new Map();
+    p.segs.forEach(s=>{
+      if(s.kind==='park'){ if(!stops.has(s.st)) stops.set(s.st, ++order); return; }
+      if(s.kind==='gap'){ const A=stLL(s.from),B=stLL(s.to); if(A&&B) L.polyline([A,B],{color:col,weight:1.8,opacity:op*.8,dashArray:'3 6'}).bindTooltip(`${p.b.number} · déplacé sans être vu<br>${esc(stName(s.from))} → ${esc(stName(s.to))}`,{sticky:true}).addTo(pathLayer); return; }
+      if(s.kind==='loop'){ const A=stLL(s.from); if(A) L.circleMarker(A,{radius:13,color:col,weight:2,opacity:op,fill:false,dashArray:'4 3'}).bindTooltip(`${p.b.number} · ${hhmm(s.m0)}–${hhmm(s.m1)}<br>Aller-retour depuis ${esc(stName(s.from))}`).addTo(pathLayer); return; }
+      if(!s.pts) return;
+      const ln=L.polyline(s.pts,{color:s.kind==='truck'?css('--truck'):col,weight:s.kind==='truck'?3:3.4,opacity:op,lineCap:'round',lineJoin:'round',dashArray:s.kind==='truck'?'8 6':null})
+        .bindTooltip(`<b>${p.b.number}</b> · ${hhmm(s.m0)}–${hhmm(s.m1)}${s.kind==='truck'?' · 🚚 camion':''}<br>${esc(stName(s.from))} → ${esc(stName(s.to))}${s.trip.km!=null?`<br>${String(s.trip.km.toFixed(1)).replace('.',',')} km à vol d’oiseau`:''}`,{sticky:true})
+        .on('click',()=>{ setFocus(p.b.number); T=s.s; frame(); }).addTo(pathLayer);
+      if(!dim) arrow(s.pts, s.kind==='truck'?css('--truck'):col).addTo(pathLayer);
+      if(!stops.has(s.to)) stops.set(s.to, ++order);
+    });
+    if(!dim) stops.forEach((k,st)=>{ const ll=stLL(st); if(!ll) return;
+      L.circleMarker(ll,{radius:4.5,color:'#fff',weight:1.5,fillColor:col,fillOpacity:1}).bindTooltip(`<b>${esc(stName(st))}</b><br>vélo ${p.b.number} · étape ${k}`).addTo(pathLayer); });
+  });
+}
+function fitAll(){
+  const pts=[]; plans.forEach(p=>p.segs.forEach(s=>{ (s.pts||[]).forEach(x=>pts.push(x)); [s.st,s.from,s.to].forEach(n=>{ const l=n!=null&&stLL(n); if(l) pts.push(l); }); }));
+  if(pts.length) map.fitBounds(pts,{padding:[40,40],maxZoom:15});
+}
+let dots=new Map();
+function drawDots(){
+  const seen=new Set();
+  plans.forEach(p=>{
+    const n=p.b.number, col=colourOf(n), pos=posAt(p,T); seen.add(n);
+    let mk=dots.get(n);
+    if(!pos){ if(mk){ dotLayer.removeLayer(mk); dots.delete(n); } return; }
+    const html=`<span class="bikeicon" style="background:${col};${pos.unknown?'opacity:.55;':''}">${pos.moving?'🚲 ':''}${n}</span>`;
+    if(!mk){ mk=L.marker(pos.ll,{icon:L.divIcon({className:'',html,iconSize:null}),zIndexOffset:1000,keyboard:false}).on('click',()=>setFocus(n)).addTo(dotLayer); dots.set(n,mk); }
+    else { mk.setLatLng(pos.ll); if(mk._html!==html){ mk.setIcon(L.divIcon({className:'',html,iconSize:null})); } }
+    mk._html=html;
+    mk.setOpacity(focus!=null && focus!==n ? .35 : 1);
+  });
+  dots.forEach((mk,n)=>{ if(!seen.has(n)){ dotLayer.removeLayer(mk); dots.delete(n); } });
+}
+
+/* ---------- timeline ---------- */
+const tl=$('tl'); const ROW=30, TOP=20, LEFT=64;
+function drawTimeline(){
+  const W=tl.clientWidth||800, n=plans.length, H=TOP+Math.max(1,n)*ROW+6;
+  tl.setAttribute('viewBox',`0 0 ${W} ${H}`); tl.style.height=H+'px';
+  const x=m=>LEFT+(W-LEFT-8)*m/1440;
+  let out='';
+  // hours without any bike reading: hatched, and nothing drawn there
+  const c0 = D && D.fetches.length ? D.fetches[0] : 0;
+  const c1 = !D ? 1440 : D.day===D.today ? endMinute() : (D.fetches.length ? D.fetches[D.fetches.length-1] : 0);
+  const clip = (m0,m1) => [Math.max(m0,c0), Math.min(m1,c1)];
+  out+=`<defs><pattern id="nodata" width="7" height="7" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="7" height="7" fill="${css('--gap')}"/><line x1="0" y1="0" x2="0" y2="7" stroke="${css('--line')}" stroke-width="3"/></pattern></defs>`;
+  if(D && n) [[0,c0],[c1, D.day===D.today?c1:1440]].forEach(([a,b])=>{ if(b-a>5){
+    out+=`<rect x="${x(a)}" y="${TOP}" width="${x(b)-x(a)}" height="${n*ROW}" fill="url(#nodata)" opacity=".9"><title>Pas de relevé de vélos ${hhmm(a)}–${hhmm(b)}</title></rect>`;
+    if(x(b)-x(a)>90) out+=`<text x="${(x(a)+x(b))/2}" y="${TOP+Math.min(n,2)*ROW/2+4}" text-anchor="middle" font-size="12" fill="${css('--muted')}">pas de relevé</text>`; } });
+  for(let h=0;h<=24;h+=3){ out+=`<line x1="${x(h*60)}" y1="${TOP-4}" x2="${x(h*60)}" y2="${H}" stroke="${css('--line')}"/><text x="${x(h*60)}" y="12" font-size="12" text-anchor="middle" fill="${css('--muted')}">${h} h</text>`; }
+  if(D && D.fetches.length){ const f=D.fetches; out+=`<rect x="${x(f[0])}" y="${TOP-5}" width="${Math.max(2,x(f[f.length-1])-x(f[0]))}" height="3" rx="1.5" fill="#1f9d55" opacity=".55"><title>Relevés de vélos : ${hhmm(f[0])} → ${hhmm(f[f.length-1])}</title></rect>`; }
+  if(!n) out+=`<text x="${LEFT}" y="${TOP+18}" font-size="12.5" fill="${css('--muted')}">Ajoutez des vélos pour voir leur journée.</text>`;
+  plans.forEach((p,i)=>{
+    const y=TOP+i*ROW, col=colourOf(p.b.number), dim=focus!=null&&focus!==p.b.number;
+    out+=`<g opacity="${dim?.35:1}" data-n="${p.b.number}"><circle cx="8" cy="${y+ROW/2-2}" r="5" fill="${col}"/><text x="18" y="${y+ROW/2+3}" font-size="12.5" font-weight="700" fill="${css('--ink')}">${p.b.number}</text>`;
+    if(c1>c0) out+=`<rect x="${x(c0)}" y="${y+6}" width="${x(c1)-x(c0)}" height="${ROW-14}" rx="4" fill="${css('--gap')}" opacity=".5"/>`;
+    p.segs.forEach(s=>{
+      const [m0,m1]=clip(s.m0,s.m1); if(m1<=m0 && s.kind!=='ride' && s.kind!=='loop' && s.kind!=='truck') return;
+      const a=x(m0), w=Math.max(1.5,x(m1)-a);
+      if(s.kind==='park'){ out+=`<rect x="${a}" y="${y+8}" width="${w}" height="${ROW-18}" rx="3" fill="${css('--park')}"><title>Garé à ${esc(stName(s.st))} · ${hhmm(s.m0)}–${hhmm(s.m1)}</title></rect>`;
+        if(w>80) out+=`<text x="${a+5}" y="${y+ROW/2+3}" font-size="11.5" fill="${css('--ink')}" opacity=".75" pointer-events="none">${esc(stName(s.st).slice(0,Math.floor(w/7)))}</text>`; }
+      else if(s.kind==='gap') out+=`<line x1="${a}" y1="${y+ROW/2-2}" x2="${a+w}" y2="${y+ROW/2-2}" stroke="${col}" stroke-width="2" stroke-dasharray="2 4"><title>Déplacé sans être vu : ${esc(stName(s.from))} → ${esc(stName(s.to))}</title></line>`;
+      else { const c=s.kind==='truck'?css('--truck'):col;
+        out+=`<rect x="${a}" y="${y+5}" width="${w}" height="${ROW-12}" rx="3" fill="${c}" opacity=".28"/>`;
+        out+=`<rect class="ride" data-s="${s.s}" x="${x(s.s)}" y="${y+5}" width="${Math.max(3,x(s.f)-x(s.s))}" height="${ROW-12}" rx="3" fill="${c}"><title>${s.kind==='loop'?'Aller-retour':s.kind==='truck'?'Camion':'Trajet'} ${hhmm(s.m0)}–${hhmm(s.m1)} : ${esc(stName(s.from))}${s.kind==='loop'?'':' → '+esc(stName(s.to))}</title></rect>`; }
+    });
+    out+='</g>';
+  });
+  if(D){ out+=`<line x1="${x(T)}" y1="${TOP-8}" x2="${x(T)}" y2="${H}" stroke="${css('--ink')}" stroke-width="2"/><circle cx="${x(T)}" cy="${TOP-8}" r="4" fill="${css('--ink')}"/>`; }
+  tl.innerHTML=out;
+  tl.querySelectorAll('rect.ride').forEach(r=>r.addEventListener('click',e=>{ e.stopPropagation(); T=+r.dataset.s; setFocus(+r.closest('g').dataset.n); frame(); }));
+}
+function seek(e){ const r=tl.getBoundingClientRect(), W=r.width; T=Math.max(0,Math.min(1440,(e.clientX-r.left-LEFT)/(W-LEFT-8)*1440)); frame(); }
+let dragging=false;
+tl.addEventListener('pointerdown',e=>{ if(e.target.classList.contains('ride')) return; dragging=true; tl.setPointerCapture(e.pointerId); seek(e); });
+tl.addEventListener('pointermove',e=>{ if(dragging) seek(e); });
+tl.addEventListener('pointerup',()=>dragging=false);
+
+/* ---------- cards ---------- */
+function stars(r){ if(!r) return ''; if(r.stars===0) return '<span style="color:#1f9d55">✓ révisé</span>'; if(r.stars==null) return ''; return `<span class="stars">${'★'.repeat(r.stars)}${'☆'.repeat(3-r.stars)}</span>`; }
+const fmtT = t => new Date(t).toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'});
+function drawCards(){
+  $('cards').innerHTML = plans.length ? '' : `<div class="empty">Aucun vélo suivi. Tapez un numéro ci-dessus${D&&D.busiest.length?' ou prenez un des plus actifs':''}.</div>`;
+  plans.forEach(p=>{
+    const b=p.b, col=colourOf(b.number), st=p.stats, el=document.createElement('div');
+    el.className='card'+(focus===b.number?' focus':'');
+    const type = b.type==='ELECTRICAL'?'⚡ électrique':b.type==='MECHANICAL'?'mécanique':'';
+    const lastPark=[...p.segs].reverse().find(s=>s.kind==='park');
+    const live = D.day===D.today && b.now;
+    const where = !b.known ? 'Jamais vu dans les relevés.'
+      : live ? `Garé à <b>${esc(stName(b.now.station))}</b>${b.now.stand?`, borne ${b.now.stand}`:''} depuis ${fmtT(b.now.since)}`
+      : lastPark ? `Fin de journée à <b>${esc(stName(lastPark.st))}</b>` : 'Pas de position connue ce jour-là.';
+    el.innerHTML=`<div class="top"><span class="dot" style="background:${col}"></span><span class="num">${b.number}</span><span class="sub">${type}</span>${stars(b.rating)}<button class="x" aria-label="Retirer ${b.number}" title="Retirer">×</button></div>
+      <div class="stats"><div class="stat"><b>${st.trips}</b><span>trajets</span></div><div class="stat"><b>${st.km.toFixed(1).replace('.',',')}</b><span>km*</span></div>
+        <div class="stat"><b>${Math.round(st.ridden)}</b><span>min roulées*</span></div><div class="stat"><b>${st.visited}</b><span>stations</span></div></div>
+      <div class="now">${where}</div>
+      <div class="sub">${b.all_trips?`${nf(b.all_trips)} trajets suivis depuis le ${new Date(b.tracked_since).toLocaleDateString('fr-FR',{day:'numeric',month:'short'})}`:''}</div>`;
+    el.querySelector('.x').onclick=e=>{ e.stopPropagation(); S.bikes=S.bikes.filter(x=>x!==b.number); if(focus===b.number) focus=null; save(); load(); };
+    el.onclick=()=>setFocus(focus===b.number?null:b.number);
+    $('cards').appendChild(el);
+  });
+  if(plans.length) $('cards').insertAdjacentHTML('beforeend','<p class="note">* km à vol d’oiseau, minutes estimées à vitesse de vélo dans chaque intervalle.</p>');
+}
+function setFocus(n){ focus=n; drawPaths(); drawCards(); frame();
+  if(n!=null){ const p=plans.find(x=>x.b.number===n); const pts=[]; p?.segs.forEach(s=>{ (s.pts||[]).forEach(x=>pts.push(x)); const l=s.st!=null&&stLL(s.st); if(l) pts.push(l); }); if(pts.length) map.fitBounds(pts,{padding:[50,50],maxZoom:15}); } }
+
+/* ---------- playback ---------- */
+function frame(){ $('clock').textContent=hhmm(T); drawDots(); drawTimeline(); if(sky&&D) sky.update(new Date(Date.parse(D.start)+T*60000)); }
+function setPlaying(p){ playing=p; $('play').textContent=p?'❚❚':'▶'; last=performance.now(); if(p) requestAnimationFrame(tick); }
+function tick(now){ if(!playing) return; const dt=Math.min(.25,(now-last)/1000); last=now; T+=dt*S.speed;
+  const end=endMinute(); if(T>=end){ T=end; setPlaying(false); } frame(); requestAnimationFrame(tick); }
+function endMinute(){ return D && D.day===D.today ? Math.min(1440,(Date.now()-Date.parse(D.start))/60000) : 1440; }
+$('play').onclick=()=>{ if(!D) return; if(!playing){ const first=Math.min(...plans.flatMap(p=>p.segs.filter(s=>s.kind!=='park').map(s=>s.m0)), endMinute());
+  if(T>=endMinute()-1 || T<first-60) T=Math.max(0,first-20); } setPlaying(!playing); };
+document.querySelectorAll('[data-s]').forEach(b=>b.onclick=()=>{ S.speed=+b.dataset.s; save(); speedChips(); });
+function speedChips(){ document.querySelectorAll('[data-s]').forEach(b=>{ b.style.background=+b.dataset.s===S.speed?css('--chip-on'):''; b.style.color=+b.dataset.s===S.speed?css('--chip-on-ink'):''; }); }
+document.addEventListener('keydown',e=>{ if(e.target.tagName==='INPUT'||e.target.tagName==='SELECT') return; if(e.code==='Space'){ e.preventDefault(); $('play').click(); } });
+
+/* ---------- data ---------- */
+function save(){ store.set('velovBikes',{bikes:S.bikes, speed:S.speed}); }
+let firstLoad=true;
+async function load(day){
+  const d = day || $('day').value || '';
+  try{
+    const r=await fetch(`/api/x/bikes?n=${S.bikes.join(',')}${d?'&day='+d:''}`); const j=await r.json();
+    if(!r.ok||j.error) throw new Error(j.error||r.statusText);
+    const keepT = D && D.day===j.day;
+    D=j;
+    $('day').innerHTML = (D.days.includes(D.day)?D.days:[...D.days,D.day]).slice().reverse().map(x=>`<option value="${x}" ${x===D.day?'selected':''}>${new Date(x+'T12:00').toLocaleDateString('fr-FR',{weekday:'long',day:'numeric',month:'long'})}${x===D.today?' (aujourd’hui)':''}</option>`).join('');
+    $('liveBadge').hidden = D.day!==D.today;
+    $('busyBox').hidden = !D.busiest.length;
+    $('busiest').innerHTML = D.busiest.filter(b=>!S.bikes.includes(b[0])).slice(0,6).map(([n,e,c])=>`<button class="chip" data-add="${n}">${e?'⚡':''}${n} <span class="sub">${c} trajets</span></button>`).join('') || '<span class="note">Tous déjà suivis.</span>';
+    document.querySelectorAll('[data-add]').forEach(b=>b.onclick=()=>addBikes(b.dataset.add));
+    $('sub').textContent = D.last_fetch ? `Dernier relevé des vélos : ${new Date(D.last_fetch).toLocaleString('fr-FR',{weekday:'short',hour:'2-digit',minute:'2-digit'})}` : 'Pas de relevé de vélos ce jour-là.';
+    plan(); drawPaths(); drawCards();
+    if(!keepT){ T = D.day===D.today ? endMinute() : Math.max(0, Math.min(...plans.flatMap(p=>p.segs.filter(s=>s.kind!=='park').map(s=>s.m0)), 1440)-15); if(!isFinite(T)) T=720; }
+    if(firstLoad || !keepT){ fitAll(); firstLoad=false; }
+    $('tlNote').textContent = plans.length ? 'Cliquez un trajet pour s’y placer · glissez pour avancer' : '';
+    frame(); fetchRoutes();
+    clearTimeout(timer); if(D.day===D.today) timer=setTimeout(()=>{ if(!playing) load(D.day); }, 120000);
+  }catch(e){ $('sub').textContent='Erreur : '+e.message; }
+}
+function addBikes(text){
+  const add=String(text).split(/[,;\s]+/).map(x=>parseInt(x,10)).filter(n=>n>0 && !(n>=99000&&n<=99999));
+  let changed=false; add.forEach(n=>{ if(!S.bikes.includes(n) && S.bikes.length<12){ S.bikes.push(n); changed=true; } });
+  if(changed){ save(); load(); }
+  $('addIn').value='';
+}
+$('addBtn').onclick=()=>addBikes($('addIn').value);
+$('addIn').addEventListener('keydown',e=>{ if(e.key==='Enter') addBikes($('addIn').value); });
+$('day').onchange=()=>{ setPlaying(false); load($('day').value); };
+addEventListener('resize',()=>drawTimeline());
+map.on('zoomend',()=>drawPaths());
+matchMedia('(prefers-color-scheme: dark)').addEventListener?.('change',()=>{ drawPaths(); drawCards(); frame(); });
+speedChips(); load(qs.get('day')||'');
+</script>
+</body>
+</html>

@@ -1,0 +1,15 @@
+{
+  "name": "Vélo'v près de moi",
+  "short_name": "Vélo'v",
+  "description": "Les stations Vélo'v les plus proches : vélos mécaniques, électriques et places libres.",
+  "start_url": "/near",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#f4f3f0",
+  "theme_color": "#d6001c",
+  "icons": [
+    {"src": "/static/near-192.png", "sizes": "192x192", "type": "image/png"},
+    {"src": "/static/near-512.png", "sizes": "512x512", "type": "image/png"},
+    {"src": "/static/near-icon.svg", "sizes": "any", "type": "image/svg+xml"}
+  ]
+}

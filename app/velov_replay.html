@@ -1,0 +1,518 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Vélo'v Replay</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<style>
+:root{
+  --bg:#f6f5f2; --panel:#ffffff; --ink:#1d1f22; --muted:#6b6f76; --line:#e3e1dc;
+  --accent:#d6001c; --mech:#d6001c; --elec:#2463c7; --truck:#7b4fd6; --rain:#3fa7c9;
+  --chip:#f0eeea; --chip-on:#1d1f22; --chip-on-ink:#fff; --glass:rgba(255,255,255,.86);
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#121315; --panel:#1b1d20; --ink:#ecebe8; --muted:#9a9ea5; --line:#2c2f33;
+    --chip:#25282c; --chip-on:#ecebe8; --chip-on-ink:#121315; --glass:rgba(27,29,32,.86);
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#121315; --panel:#1b1d20; --ink:#ecebe8; --muted:#9a9ea5; --line:#2c2f33;
+  --chip:#25282c; --chip-on:#ecebe8; --chip-on-ink:#121315; --glass:rgba(27,29,32,.86);
+}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;background:var(--bg);color:var(--ink);font:14px/1.4 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+#app{display:flex;height:100%}
+#panel{width:340px;flex:none;background:var(--panel);border-right:1px solid var(--line);overflow-y:auto;padding:18px 18px 24px}
+#stage{flex:1;min-width:0;display:flex;flex-direction:column}
+#mapwrap{flex:1;position:relative;min-height:0}
+#map{position:absolute;inset:0;background:var(--bg)}
+.leaflet-tile-pane{filter:grayscale(1) contrast(.9) brightness(1.03);opacity:.55}
+#fx{position:absolute;inset:0;z-index:450;pointer-events:none}
+#clock{position:absolute;left:16px;bottom:16px;z-index:460;background:var(--glass);backdrop-filter:blur(6px);border-radius:14px;padding:10px 16px 12px;box-shadow:0 4px 18px rgba(0,0,0,.12);pointer-events:none}
+#clock .t{font-size:44px;font-weight:700;letter-spacing:-.02em;font-variant-numeric:tabular-nums;line-height:1}
+#clock .d{font-size:12.5px;color:var(--muted);margin-top:4px}
+#clock .w{font-size:13px;margin-top:2px}
+#live{position:absolute;right:16px;top:16px;z-index:460;background:var(--glass);backdrop-filter:blur(6px);border-radius:12px;padding:8px 12px;font-size:12.5px;box-shadow:0 4px 18px rgba(0,0,0,.12);pointer-events:none;font-variant-numeric:tabular-nums}
+#live b{font-size:16px}
+#mapwrap.night #clock,#mapwrap.night #live{background:rgba(22,25,32,.84);color:#ecebe8;box-shadow:0 4px 18px rgba(0,0,0,.4)}
+#mapwrap.night #clock .d{color:#a3a7b0}
+#clock,#live{transition:background-color .6s,color .6s}
+#rec{position:absolute;left:50%;top:14px;transform:translateX(-50%);z-index:470;background:#d6001c;color:#fff;border-radius:999px;padding:5px 12px;font-size:12.5px;font-weight:600}
+#rec::before{content:"";display:inline-block;width:8px;height:8px;border-radius:50%;background:#fff;margin-right:7px;animation:blink 1s infinite}
+@keyframes blink{50%{opacity:.2}}
+#bar{flex:none;height:96px;background:var(--panel);border-top:1px solid var(--line);display:flex;align-items:center;gap:12px;padding:0 14px}
+#play{width:44px;height:44px;border-radius:50%;border:0;background:var(--ink);color:var(--panel);font-size:18px;cursor:pointer;flex:none}
+#tl{flex:1;height:72px;display:block;cursor:pointer;touch-action:none}
+h1{font-size:18px;margin:0 0 2px;letter-spacing:-.01em} h1 b{color:var(--accent)}
+.sub{color:var(--muted);font-size:12px}
+.section{border-top:1px solid var(--line);padding-top:14px;margin-top:14px}
+.label{font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin-bottom:8px}
+.chips{display:flex;flex-wrap:wrap;gap:6px}
+[hidden]{display:none!important}
+.chip{border:0;background:var(--chip);color:var(--ink);padding:6px 10px;border-radius:999px;font:inherit;font-size:13px;cursor:pointer}
+.chip[aria-pressed="true"]{background:var(--chip-on);color:var(--chip-on-ink)}
+select,input[type=text],input[type=number]{font:inherit;color:var(--ink);background:var(--chip);border:1px solid var(--line);border-radius:8px;padding:6px 8px;color-scheme:light dark}
+select{width:100%}
+.row{margin-bottom:12px}
+.btn{border:0;background:var(--ink);color:var(--panel);border-radius:9px;padding:8px 12px;font:inherit;font-size:13px;font-weight:600;cursor:pointer}
+.btn.ghost{background:var(--chip);color:var(--ink);font-weight:500}
+.btn:disabled{opacity:.5;cursor:default}
+.note{font-size:12px;color:var(--muted);margin:8px 0 0}
+.ticker{display:flex;flex-direction:column;gap:4px;font-size:12.5px}
+.ev{display:grid;grid-template-columns:42px 1fr;gap:6px;opacity:.95}
+.ev .tm{color:var(--muted);font-variant-numeric:tabular-nums}
+.tline{display:flex;flex-direction:column;gap:2px;margin-top:8px;max-height:260px;overflow:auto}
+.tr{display:grid;grid-template-columns:86px 1fr;gap:8px;font-size:12.5px;padding:5px 6px;border-radius:7px;cursor:pointer}
+.tr:hover{background:var(--chip)} .tr.now{background:var(--chip);box-shadow:inset 3px 0 0 var(--accent)}
+.tr .tm{color:var(--muted);font-variant-numeric:tabular-nums}
+.leg{display:flex;gap:12px;flex-wrap:wrap;font-size:12.5px;align-items:center}
+.dot{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:5px;vertical-align:-1px}
+.ramp{height:10px;border-radius:5px;background:linear-gradient(90deg,#d64545 0%,#ecb818 33%,#96b2de 60%,#2463c7 100%)}
+.ends{display:flex;justify-content:space-between;font-size:12px;color:var(--muted);margin-top:3px}
+.stars{color:#e8a317;letter-spacing:1px}
+@media (max-width:760px){ #app{flex-direction:column} #panel{width:auto;max-height:40vh;border-right:0;border-bottom:1px solid var(--line)} #clock .t{font-size:32px} }
+</style>
+<script>/* inside the Vélo'v Control app the tab already names the page */
+try{ if(window.top!==window.self) document.documentElement.classList.add('embedded'); }catch(e){ document.documentElement.classList.add('embedded'); }</script>
+<style>html.embedded h1{display:none}
+@media (pointer:coarse){ .chip{min-height:40px} }</style>
+</head>
+<body>
+<div id="app">
+<aside id="panel">
+  <h1>Vélo'v <b>Replay</b></h1>
+  <div class="sub" id="sub">Chargement…</div>
+
+  <div class="section">
+    <div class="label">Journée</div>
+    <select id="day" class="row"></select>
+    <div class="label">Vitesse</div>
+    <div class="chips row" id="speeds">
+      <button class="chip" data-s="1">1 min/s</button>
+      <button class="chip" data-s="5">5 min/s</button>
+      <button class="chip" data-s="15">15 min/s</button>
+      <button class="chip" data-s="30">30 min/s</button>
+    </div>
+    <div class="label">Afficher</div>
+    <div class="chips">
+      <button class="chip" data-l="stations">Stations</button>
+      <button class="chip" data-l="trips">Trajets</button>
+      <button class="chip" data-l="trucks">Camions</button>
+      <button class="chip" data-l="trails">Traînées</button>
+    </div>
+    <div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap">
+      <button class="btn ghost" id="peakBtn" hidden></button>
+    </div>
+  </div>
+
+  <div class="section">
+    <div class="label">Suivre un vélo</div>
+    <div style="display:flex;gap:8px">
+      <input type="text" id="bikeIn" inputmode="numeric" placeholder="n° du vélo, ex. 20128" style="flex:1;min-width:0">
+      <button class="btn" id="bikeGo">Suivre</button>
+    </div>
+    <div style="margin-top:8px;display:flex;gap:12px;align-items:center;flex-wrap:wrap">
+      <button class="btn ghost" id="busiest">Le plus actif du jour</button>
+      <label style="font-size:13px"><input type="checkbox" id="cam" checked> caméra</label>
+    </div>
+    <div id="bikeBox"></div>
+  </div>
+
+  <div class="section">
+    <div class="label">Fil des événements</div>
+    <div class="ticker" id="ticker"></div>
+  </div>
+
+  <div class="section">
+    <div class="label">Vidéo</div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap">
+      <button class="btn" id="recBtn">● Enregistrer</button>
+      <button class="btn ghost" id="recDay">Toute la journée</button>
+    </div>
+    <p class="note" id="recNote">Enregistre la carte telle qu’affichée, avec l’horloge, à la vitesse choisie. Arrêtez quand vous voulez ; le fichier se télécharge.</p>
+  </div>
+
+  <div class="section">
+    <div class="label">Légende</div>
+    <div class="ramp"></div><div class="ends"><span>station vide</span><span>à moitié</span><span>pleine</span></div>
+    <div class="leg" style="margin-top:10px">
+      <span><i class="dot" style="background:var(--mech)"></i>mécanique</span>
+      <span><i class="dot" style="background:var(--elec)"></i>électrique</span>
+      <span><i class="dot" style="background:var(--truck);border-radius:2px"></i>camion</span>
+    </div>
+    <p class="note">Chaque trajet a lieu quelque part entre deux relevés : il est animé au milieu de cet intervalle, à une vitesse de vélo réaliste, par les rues quand l’itinéraire est connu. Les niveaux des stations sont interpolés entre deux relevés.</p>
+  </div>
+</aside>
+<div id="stage">
+  <div id="mapwrap">
+    <div id="map"></div>
+    <canvas id="fx"></canvas>
+    <div id="clock"><div class="t" id="cT">--:--</div><div class="d" id="cD"></div><div class="w" id="cW"></div></div>
+    <div id="live"></div>
+    <div id="rec" hidden>REC</div>
+  </div>
+  <div id="bar">
+    <button id="play" aria-label="Lecture">▶</button>
+    <canvas id="tl"></canvas>
+  </div>
+</div>
+</div>
+
+<script src="/static/velov_sky.js"></script>
+<script>
+const $ = id => document.getElementById(id);
+const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+const nf = n => Number(n).toLocaleString('fr-FR');
+const esc = s => String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const store = { get(k,d){ try{ const v=localStorage.getItem(k); return v?JSON.parse(v):d; }catch(e){ return d; } },
+                set(k,v){ try{ localStorage.setItem(k,JSON.stringify(v)); }catch(e){} } };
+const hhmm = m => { m=Math.max(0,Math.min(1440,m)); const h=Math.floor(m/60)%24, mm=Math.floor(m%60); return String(h).padStart(2,'0')+':'+String(mm).padStart(2,'0'); };
+
+let O = Object.assign({speed:5, layers:{stations:true,trips:true,trucks:true,trails:true}}, store.get('velovReplay',{}));
+let R=null, T=0, playing=false, last=0, follow=null, bikeInfo=null;
+let frames=[], trips=[], moving=[], activity=new Float32Array(1441), events=[], stPts=[];
+
+const map = L.map('map',{zoomControl:true}).setView([45.76,4.85],13);
+const tiles = L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19,
+  attribution:'&copy; contributeurs <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> · Données : Métropole de Lyon / JCDecaux'}).addTo(map);
+const sky = VelovSky.attach(map);
+const fx=$('fx'), g=fx.getContext('2d');
+
+/* ---------- geometry ---------- */
+const kmBetween = (a,b) => { const dx=(b[1]-a[1])*78.6, dy=(b[0]-a[0])*111.2; return Math.hypot(dx,dy); };
+function decodePoly(str){ const pts=[]; let i=0, lat=0, lng=0;
+  while(i<str.length){ for(const k of [0,1]){ let b, sh=0, r=0; do{ b=str.charCodeAt(i++)-63; r|=(b&31)<<sh; sh+=5; }while(b>=32);
+    const d=(r&1)?~(r>>1):(r>>1); if(k===0) lat+=d; else lng+=d; } pts.push([lat/1e5, lng/1e5]); } return pts; }
+const rk = (a,b) => `${a[0].toFixed(4)},${a[1].toFixed(4)};${b[0].toFixed(4)},${b[1].toFixed(4)}`;
+const routes = new Map();
+function pathOf(ia, iz){
+  const a=R.stations[ia], b=R.stations[iz], k=rk([a[2],a[3]],[b[2],b[3]]);
+  const r=routes.get(k); if(r) return r;
+  // curved fallback, bent to the right like on the Heatmaps tab
+  const A=[a[2],a[3]], B=[b[2],b[3]], k2=.16, C=[(A[0]+B[0])/2-(B[1]-A[1])*k2*.708, (A[1]+B[1])/2+(B[0]-A[0])*k2/.708];
+  const pts=[]; for(let i=0;i<=16;i++){ const t=i/16,u=1-t; pts.push([u*u*A[0]+2*u*t*C[0]+t*t*B[0], u*u*A[1]+2*u*t*C[1]+t*t*B[1]]); }
+  return withLengths(pts, null);
+}
+function withLengths(pts, dist){ const cum=[0]; for(let i=1;i<pts.length;i++) cum.push(cum[i-1]+kmBetween(pts[i-1],pts[i])); return {pts, cum, km: dist? dist/1000 : cum[cum.length-1]}; }
+function along(path, f){
+  const L_=path.cum[path.cum.length-1]*Math.max(0,Math.min(1,f));
+  let i=1; while(i<path.cum.length-1 && path.cum[i]<L_) i++;
+  const s=path.cum[i]-path.cum[i-1]||1, t=(L_-path.cum[i-1])/s, p=path.pts[i-1], q=path.pts[i];
+  return [p[0]+(q[0]-p[0])*t, p[1]+(q[1]-p[1])*t];
+}
+
+/* ---------- data ---------- */
+async function load(day){
+  $('sub').textContent='Chargement…';
+  const r = await fetch('/api/x/replay'+(day?'?day='+day:'')); const d = await r.json();
+  if(!r.ok || d.error){ $('sub').textContent='Erreur : '+(d.error||r.statusText); return; }
+  R=d;
+  $('day').innerHTML = R.days.slice().reverse().map(([dd,n])=>`<option value="${dd}" ${dd===R.day?'selected':''}>${new Date(dd+'T12:00').toLocaleDateString('fr-FR',{weekday:'long',day:'numeric',month:'long'})} · ${n} relevés</option>`).join('');
+  if(!R.day){ $('sub').textContent='Pas encore de relevés.'; return; }
+  frames = R.frames.map(f=>f.map(s=>Int16Array.from(s.split(','),Number)));
+  trips = R.trips.map(([bike,e,ia,iz,m0,m1,truck,loop])=>({bike,e,ia,iz,m0,m1,truck,loop}));
+  planTrips();
+  buildEvents();
+  const first=R.times[0]??0, lastT=R.times[R.times.length-1]??1440;
+  $('sub').textContent = `${nf(trips.filter(t=>!t.loop&&!t.truck).length)} trajets · ${nf(R.times.length)} relevés · ${hhmm(first)}–${hhmm(lastT)}`;
+  T = Math.max(first, Math.min(T||first, lastT));
+  fitOnce(); requestRoutes(); drawTimeline(); frame(true);
+  if(follow) followBike(follow, true);
+}
+function planTrips(){
+  activity.fill(0);
+  moving = [];
+  const truckSeen = new Set();
+  for(const t of trips){
+    if(t.loop || t.ia===t.iz){ t.skip=true; continue; }
+    if(t.truck){ const k=t.ia+'>'+t.iz+'@'+t.m1; if(truckSeen.has(k)){ t.skip=true; continue; } truckSeen.add(k);
+      t.load = trips.filter(o=>o.truck&&o.ia===t.ia&&o.iz===t.iz&&o.m1===t.m1).length; }
+    const a=R.stations[t.ia], b=R.stations[t.iz];
+    const km = kmBetween([a[2],a[3]],[b[2],b[3]])*1.3;
+    const kmh = t.truck ? 18 : t.e ? 17 : 13.5;
+    const dur = Math.min(Math.max(3, km/kmh*60), Math.max(3, t.m1-t.m0));
+    const mid = (t.m0+t.m1)/2;
+    t.s = mid-dur/2; t.f = mid+dur/2;
+    moving.push(t);
+    for(let m=Math.max(0,Math.floor(t.s)); m<=Math.min(1440,Math.ceil(t.f)); m++) if(!t.truck) activity[m]++;
+  }
+  moving.sort((x,y)=>x.s-y.s);
+  let pk=0; for(let m=1;m<=1440;m++) if(activity[m]>activity[pk]) pk=m;
+  $('peakBtn').hidden = !activity[pk];
+  $('peakBtn').textContent = `⚡ Pic du jour : ${hhmm(pk)} (${nf(activity[pk])} vélos en route)`;
+  $('peakBtn').onclick = () => { T=Math.max(0,pk-20); frame(true); };
+}
+function buildEvents(){
+  events=[];
+  moving.filter(t=>t.truck).forEach(t=>events.push({m:t.f, kind:'truck', txt:`Camion : ${t.load} vélos ${short(R.stations[t.ia][1])} → ${short(R.stations[t.iz][1])}`}));
+  // stations that ran dry or filled up, grouped per fetch, biggest stations named first
+  const names = list => { list.sort((a,b)=>(R.stations[b][4]||0)-(R.stations[a][4]||0));
+    const n=list.slice(0,2).map(i=>short(R.stations[i][1])).join(', '); return list.length>2 ? `${n} et ${list.length-2} autre${list.length>3?'s':''}` : n; };
+  for(let i=1;i<frames.length;i++){ const p=frames[i-1][0], c=frames[i][0], dp=frames[i-1][2], dc=frames[i][2], em=[], fu=[];
+    for(let s=0;s<c.length;s++){ if((R.stations[s][4]||0)<20) continue;      // big stations only: small ones flicker all evening
+      if(p[s]>0 && c[s]===0) em.push(s); else if(dp[s]>0 && dc[s]===0 && c[s]>0) fu.push(s); }
+    if(em.length) events.push({m:R.times[i], kind:'empty', txt:`${em.length>1?em.length+' stations vidées : ':'Vidée : '}${names(em)}`});
+    if(fu.length) events.push({m:R.times[i], kind:'full', txt:`${fu.length>1?fu.length+' stations pleines : ':'Pleine : '}${names(fu)}`});
+  }
+  // rain starting and stopping
+  R.weather.forEach((w,h)=>{ const prev=h?R.weather[h-1]:null, wet=w&&w[0]>=.2, was=prev&&prev[0]>=.2;
+    if(w && prev && wet!==was) events.push({m:h*60, kind:wet?'rain':'sun', txt: wet?`Il commence à pleuvoir (${String(w[0]).replace('.',',')} mm/h)`:'La pluie s’arrête'}); });
+  let pk=0; for(let m=1;m<=1440;m++) if(activity[m]>activity[pk]) pk=m;
+  if(activity[pk]) events.push({m:pk, kind:'peak', txt:`Pic du jour : ${nf(activity[pk])} vélos en route`});
+  events.sort((a,b)=>a.m-b.m);
+}
+const short = s => s.length>26 ? s.slice(0,25)+'…' : s;
+let fitted=false;
+function fitOnce(){ if(fitted) return; fitted=true;
+  // frame where 90 % of the trips start or end, not the outlying stations
+  const la=[], ln=[]; moving.forEach(t=>[t.ia,t.iz].forEach(i=>{ la.push(R.stations[i][2]); ln.push(R.stations[i][3]); }));
+  if(!la.length) R.stations.forEach(s=>{ la.push(s[2]); ln.push(s[3]); });
+  if(!la.length) return;
+  la.sort((a,b)=>a-b); ln.sort((a,b)=>a-b); const q=(v,f)=>v[Math.floor((v.length-1)*f)];
+  map.fitBounds([[q(la,.05),q(ln,.05)],[q(la,.95),q(ln,.95)]],{padding:[20,20]}); }
+
+async function requestRoutes(){
+  const count=new Map();
+  moving.forEach(t=>{ const k=t.ia+'>'+t.iz; count.set(k,(count.get(k)||0)+1); });
+  const top=[...count.entries()].sort((a,b)=>b[1]-a[1]).slice(0,300).map(([k])=>k.split('>').map(Number));
+  const pairs=top.map(([ia,iz])=>{ const a=R.stations[ia], b=R.stations[iz]; return [a[2],a[3],b[2],b[3]]; });
+  try{
+    const r=await fetch('/api/x/routes',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({pairs})});
+    const d=await r.json(); if(!r.ok) return;
+    for(const [k,[poly,dist]] of Object.entries(d.routes)) if(!routes.has(k)) routes.set(k, withLengths(decodePoly(poly), dist));
+    if(d.pending) setTimeout(requestRoutes, Math.min(20000, 4000+d.pending*30));
+  }catch(e){}
+}
+
+/* ---------- state at time T ---------- */
+function stationLevels(m){
+  const ts=R.times; if(!ts.length) return null;
+  let i=0; while(i<ts.length-1 && ts[i+1]<=m) i++;
+  const A=frames[i], B=frames[Math.min(i+1,ts.length-1)], span=(ts[i+1]??ts[i])-ts[i], f=span>0?Math.max(0,Math.min(1,(m-ts[i])/span)):0;
+  return {A,B,f};
+}
+function levelColour(r){
+  const stops=[[0,[214,69,69]],[.33,[236,184,24]],[.6,[150,178,222]],[1,[36,99,199]]];   // red → yellow → blue: safe for red-green colour blindness
+  for(let i=1;i<stops.length;i++) if(r<=stops[i][0]){ const [a,ca]=stops[i-1],[b,cb]=stops[i], t=(r-a)/(b-a);
+    return `rgb(${ca.map((v,k)=>Math.round(v+(cb[k]-v)*t)).join(',')})`; }
+  return 'rgb(36,99,199)';
+}
+
+/* ---------- drawing ---------- */
+function resize(){ const r=$('mapwrap').getBoundingClientRect(), d=devicePixelRatio||1;
+  fx.width=r.width*d; fx.height=r.height*d; fx.style.width=r.width+'px'; fx.style.height=r.height+'px'; g.setTransform(d,0,0,d,0,0);
+  const tl=$('tl'), tr=tl.getBoundingClientRect(); tl.width=tr.width*d; tl.height=tr.height*d; drawTimeline(); frame(true); }
+addEventListener('resize', resize);
+map.on('move zoom', ()=>frame(true));
+
+function frame(force){
+  if(!R || !R.day) return;
+  const W=fx.width/(devicePixelRatio||1), H=fx.height/(devicePixelRatio||1);
+  g.clearRect(0,0,W,H);
+  const z=map.getZoom(), pt=(la,ln)=>map.latLngToContainerPoint([la,ln]);
+  const lv=stationLevels(T), sc=Math.max(.6, Math.min(2.2, (z-11)/2.2));
+  let parked=0, empty=0, full=0;
+  // stations
+  if(lv) R.stations.forEach((s,i)=>{
+    const bA=lv.A[0][i], bB=lv.B[0][i], dA=lv.A[2][i], dB=lv.B[2][i]; if(bA<0) return;
+    const b=bA+(bB-bA)*lv.f, d=Math.max(0,dA+(dB-dA)*lv.f), cap=Math.max(1,b+d);
+    parked+=b; if(b<.5) empty++; if(d<.5) full++;
+    if(!O.layers.stations) return;
+    const p=pt(s[2],s[3]), r=(2.4+Math.sqrt(cap)*.9)*sc;
+    g.beginPath(); g.arc(p.x,p.y,r,0,7); g.fillStyle=levelColour(b/cap); g.globalAlpha=.88; g.fill();
+    if(b<.5){ g.globalAlpha=.9; g.lineWidth=1.6; g.strokeStyle='#d64545'; g.beginPath(); g.arc(p.x,p.y,r+2.2,0,7); g.stroke(); }
+    g.globalAlpha=1;
+  });
+  // trips
+  let enRoute=0, trucksNow=0, followPos=null;
+  for(const t of moving){
+    if(t.s>T) break;
+    if(t.f<T || t.skip) continue;
+    if(t.truck){ trucksNow++; if(!O.layers.trucks) continue; } else { enRoute++; if(!O.layers.trips) continue; }
+    const path = t.path || (t.path=pathOf(t.ia,t.iz)), f=(T-t.s)/(t.f-t.s);
+    const pos=along(path,f), p=pt(pos[0],pos[1]);
+    const col = t.truck ? css('--truck') : t.e ? css('--elec') : css('--mech');
+    if(O.layers.trails && !t.truck){
+      g.strokeStyle=col; g.lineCap='round';
+      const step=.4/Math.max(1,t.f-t.s);            // tail = the last ~1.6 minutes of the ride
+      for(let k=1;k<=4;k++){ const q=along(path, f-k*step), a=along(path, f-(k-1)*step), P1=pt(q[0],q[1]), P2=pt(a[0],a[1]);
+        g.globalAlpha=.45*(1-k/5); g.lineWidth=(2.6-k*.35)*sc; g.beginPath(); g.moveTo(P1.x,P1.y); g.lineTo(P2.x,P2.y); g.stroke(); }
+      g.globalAlpha=1;
+    }
+    if(t.truck){ const s_=(5+Math.min(6,t.load))*sc; g.fillStyle=col; g.globalAlpha=.92; g.fillRect(p.x-s_/2,p.y-s_/2,s_,s_);
+      g.globalAlpha=1; g.fillStyle='#fff'; g.font=`700 ${Math.round(8*sc)}px system-ui`; g.textAlign='center'; g.textBaseline='middle'; g.fillText(t.load,p.x,p.y+.5); }
+    else { g.beginPath(); g.arc(p.x,p.y,2.6*sc,0,7); g.fillStyle=col; g.fill(); }
+    if(follow && t.bike===follow) followPos={p, latlng:pos};
+  }
+  // followed bike: on the move or parked
+  if(follow){
+    let where=followPos;
+    if(!where && bikeDay){ const at=parkedAt(T); if(at!=null){ const s=R.stations[at]; where={p:pt(s[2],s[3]), latlng:[s[2],s[3]], parked:true}; } }
+    if(where){ const {p}=where, pulse=6+3*Math.sin(performance.now()/180);
+      g.strokeStyle=css('--ink'); g.lineWidth=2.5; g.beginPath(); g.arc(p.x,p.y,(where.parked?9:7)*sc+pulse*.4,0,7); g.stroke();
+      g.font='600 12px system-ui'; g.textAlign='left'; g.textBaseline='middle';
+      const label=`${follow}${where.parked?' · garé':''}`, w=g.measureText(label).width+12;
+      g.fillStyle=css('--ink'); g.beginPath(); g.roundRect?.(p.x+14,p.y-11,w,22,11); if(!g.roundRect) g.rect(p.x+14,p.y-11,w,22); g.fill();
+      g.fillStyle=css('--panel'); g.fillText(label,p.x+20,p.y);
+      if($('cam').checked && playing){ const c=map.getSize(); if(p.x<c.x*.2||p.x>c.x*.8||p.y<c.y*.2||p.y>c.y*.8) map.panTo(where.latlng,{animate:true,duration:.6}); }
+    }
+    markBikeTrip();
+  }
+  // clock, counters, ticker
+  sky.update(new Date(Date.parse(R.start) + T*60000));
+  const skySt = sky.state || {dark:0, alt:30};
+  $('mapwrap').classList.toggle('night', skySt.dark > .55);
+  $('cT').textContent=hhmm(T);
+  $('cD').textContent=new Date(R.day+'T12:00').toLocaleDateString('fr-FR',{weekday:'long',day:'numeric',month:'long'});
+  const w=R.weather[Math.min(24,Math.floor(T/60))];
+  $('cW').textContent = w ? `${w[0]>=1?'🌧':w[0]>=.2?'🌦':skySt.alt<-0.833?'🌙':'☀'} ${w[0]>0?String(w[0]).replace('.',',')+' mm · ':''}${w[1]} °C` : '';
+  $('live').innerHTML = `<b>${nf(enRoute)}</b> en route${trucksNow?` · <b>${trucksNow}</b> camion${trucksNow>1?'s':''}`:''}<br>${nf(Math.round(parked))} vélos garés · ${empty} stations vides · ${full} pleines`;
+  ticker(); drawTimeline();
+}
+function ticker(){
+  let i=events.length; while(i>0 && events[i-1].m>T) i--;
+  const ev=events.slice(Math.max(0,i-6),i).reverse();
+  const ico={truck:'🚚',empty:'○',full:'●',rain:'🌧',sun:'☀',peak:'⚡'};
+  $('ticker').innerHTML = ev.length ? ev.map(e=>`<div class="ev"><span class="tm">${hhmm(e.m)}</span><span>${ico[e.kind]} ${esc(e.txt)}</span></div>`).join('')
+    : '<p class="note" style="margin:0">Rien encore à cette heure-ci.</p>';
+}
+
+/* ---------- timeline ---------- */
+const tl=$('tl'), tg=tl.getContext('2d');
+function drawTimeline(){
+  if(!R || !R.day) return;
+  const d=devicePixelRatio||1, W=tl.width/d, H=tl.height/d; tg.setTransform(d,0,0,d,0,0); tg.clearRect(0,0,W,H);
+  const x=m=>m/1440*W, base=H-16;
+  let mx=1; for(let m=0;m<=1440;m++) mx=Math.max(mx,activity[m]);
+  // rain strip
+  R.weather.forEach((w,h)=>{ if(w && w[0]>=.2){ tg.fillStyle=css('--rain'); tg.globalAlpha=Math.min(.35,.12+w[0]*.08); tg.fillRect(x(h*60),0,x(60),base); } });
+  tg.globalAlpha=1;
+  // data coverage
+  tg.fillStyle=css('--chip'); if(R.times.length) tg.fillRect(x(R.times[0]),base-1,x(R.times[R.times.length-1])-x(R.times[0]),3);
+  // activity area
+  tg.beginPath(); tg.moveTo(0,base); for(let m=0;m<=1440;m+=2) tg.lineTo(x(m), base-(base-6)*activity[m]/mx); tg.lineTo(W,base); tg.closePath();
+  tg.fillStyle=css('--accent'); tg.globalAlpha=.18; tg.fill(); tg.globalAlpha=.8; tg.strokeStyle=css('--accent'); tg.lineWidth=1.2; tg.stroke(); tg.globalAlpha=1;
+  // hours
+  tg.fillStyle=css('--muted'); tg.font='12px system-ui'; tg.textAlign='center'; tg.textBaseline='alphabetic';
+  for(let h=0;h<=24;h+=3) tg.fillText(h+' h', Math.min(W-12,Math.max(10,x(h*60))), H-2);
+  // playhead
+  tg.strokeStyle=css('--ink'); tg.lineWidth=2; tg.beginPath(); tg.moveTo(x(T),0); tg.lineTo(x(T),base); tg.stroke();
+  tg.fillStyle=css('--ink'); tg.beginPath(); tg.arc(x(T),4,4,0,7); tg.fill();
+}
+function seek(e){ const r=tl.getBoundingClientRect(); T=Math.max(0,Math.min(1440,(e.clientX-r.left)/r.width*1440)); frame(true); }
+let dragging=false;
+tl.addEventListener('pointerdown',e=>{ dragging=true; tl.setPointerCapture(e.pointerId); seek(e); });
+tl.addEventListener('pointermove',e=>{ if(dragging) seek(e); });
+tl.addEventListener('pointerup',()=>dragging=false);
+
+/* ---------- playback ---------- */
+function setPlaying(p){ playing=p; $('play').textContent=p?'❚❚':'▶'; $('play').setAttribute('aria-label',p?'Pause':'Lecture'); last=performance.now(); if(p) requestAnimationFrame(tick); }
+function tick(now){
+  if(!playing) return;
+  const dt=Math.min(.25,(now-last)/1000); last=now;
+  const end=R.times.length?R.times[R.times.length-1]:1440;
+  T+=dt*O.speed;
+  if(T>=end){ T=end; setPlaying(false); if(recorder) stopRec(); }
+  frame(); requestAnimationFrame(tick);
+}
+$('play').onclick=()=>{ if(!playing && R && R.times.length && T>=R.times[R.times.length-1]-.5) T=R.times[0]; setPlaying(!playing); };
+document.addEventListener('keydown',e=>{ if(e.target.tagName==='INPUT'||e.target.tagName==='SELECT') return;
+  if(e.code==='Space'){ e.preventDefault(); $('play').click(); }
+  if(e.code==='ArrowRight'){ T=Math.min(1440,T+10); frame(true); } if(e.code==='ArrowLeft'){ T=Math.max(0,T-10); frame(true); } });
+
+/* ---------- follow one bike ---------- */
+let bikeDay=null;
+async function followBike(n, keep){
+  follow=+n; if(!follow){ return; }
+  bikeDay = trips.filter(t=>t.bike===follow).sort((a,b)=>a.m1-b.m1);
+  $('bikeIn').value=follow;
+  let info=null; try{ info=await (await fetch('/api/x/bike?n='+follow)).json(); }catch(e){}
+  bikeInfo=info;
+  const stars = r => r==null ? '' : r.stars===0 ? '✓ révisé' : r.stars ? '★'.repeat(r.stars)+'☆'.repeat(3-r.stars) : '';
+  const type = info?.type==='ELECTRICAL' ? 'électrique' : info?.type==='MECHANICAL' ? 'mécanique' : '';
+  $('bikeBox').innerHTML = `<div style="margin-top:10px;font-size:13px"><b>Vélo ${follow}</b> ${type?'· '+type:''} ${info?.rating?`<span class="stars">${stars(info.rating)}</span>`:''}
+      <div class="note" style="margin:2px 0 0">${bikeDay.length} trajet${bikeDay.length>1?'s':''} ce jour-là${info?.trips?` · ${info.trips.length} au total, ~${String(info.km).replace('.',',')} km à vol d’oiseau`:''}${info?.now?` · garé maintenant à ${esc(info.now.name)}`:''}</div></div>
+    <div class="tline" id="tline">${bikeDay.map((t,i)=>`<div class="tr" data-i="${i}"><span class="tm">${hhmm(t.m0)}–${hhmm(t.m1)}</span><span>${t.loop?'↺ aller-retour à ':''}${esc(short(R.stations[t.ia][1]))}${t.loop?'':' → '+esc(short(R.stations[t.iz][1]))}${t.truck?' 🚚':''}</span></div>`).join('') || '<p class="note">Ce vélo n’a pas bougé ce jour-là.</p>'}</div>`;
+  document.querySelectorAll('#tline .tr').forEach(el=>el.onclick=()=>{ const t=bikeDay[+el.dataset.i]; T=Math.max(0,(t.s??t.m0)-2); frame(true); });
+  if(!keep && bikeDay.length){ T=Math.max(R.times[0]??0,(bikeDay[0].s??bikeDay[0].m0)-3); const s=R.stations[bikeDay[0].ia]; map.setView([s[2],s[3]],Math.max(map.getZoom(),14)); }
+  frame(true);
+}
+function parkedAt(m){
+  if(!bikeDay) return null; let at=null;
+  for(const t of bikeDay){ if((t.s??t.m0)>m){ if(at==null) at=t.ia; break; } at=t.iz; }
+  return at;
+}
+function markBikeTrip(){
+  if(!bikeDay) return; let cur=-1; bikeDay.forEach((t,i)=>{ if((t.s??t.m0)<=T) cur=i; });
+  document.querySelectorAll('#tline .tr').forEach(el=>el.classList.toggle('now', +el.dataset.i===cur));
+}
+$('bikeGo').onclick=()=>{ const n=parseInt($('bikeIn').value,10); if(n) followBike(n); };
+$('bikeIn').addEventListener('keydown',e=>{ if(e.key==='Enter') $('bikeGo').click(); });
+$('busiest').onclick=()=>{ const c=new Map(); trips.forEach(t=>{ if(!t.loop&&!t.truck) c.set(t.bike,(c.get(t.bike)||0)+1); });
+  const best=[...c.entries()].sort((a,b)=>b[1]-a[1])[0]; if(best) followBike(best[0]); };
+
+/* ---------- video export ---------- */
+let recorder=null, chunks=[], recLoop=null;
+const tileCache=new Map();
+function corsTile(src){ let im=tileCache.get(src); if(!im){ im=new Image(); im.crossOrigin='anonymous'; im.src=src; im.ok=false; im.onload=()=>im.ok=true; tileCache.set(src,im); } return im; }
+function pickType(){ for(const t of ['video/mp4;codecs=avc1.42E01E','video/mp4','video/webm;codecs=vp9','video/webm']) if(window.MediaRecorder && MediaRecorder.isTypeSupported(t)) return t; return null; }
+function startRec(){
+  const type=pickType(); if(!type){ $('recNote').textContent='Ce navigateur ne sait pas enregistrer de vidéo.'; return; }
+  const box=$('mapwrap').getBoundingClientRect(), W=Math.round(box.width/2)*2, H=Math.round(box.height/2)*2;
+  const out=document.createElement('canvas'); out.width=W; out.height=H; const o=out.getContext('2d');
+  const stream=out.captureStream(30);
+  try{ recorder=new MediaRecorder(stream,{mimeType:type, videoBitsPerSecond:6e6}); }catch(e){ $('recNote').textContent='Enregistrement impossible : '+e.message; return; }
+  chunks=[]; recorder.ondataavailable=e=>{ if(e.data.size) chunks.push(e.data); };
+  recorder.onstop=()=>{ const blob=new Blob(chunks,{type}); const a=document.createElement('a');
+    a.href=URL.createObjectURL(blob); a.download=`velov_replay_${R.day}.${type.includes('mp4')?'mp4':'webm'}`; document.body.appendChild(a); a.click();
+    setTimeout(()=>{ URL.revokeObjectURL(a.href); a.remove(); },4000);
+    $('recNote').textContent=`Vidéo enregistrée (${(blob.size/1e6).toFixed(1).replace('.',',')} Mo, ${type.includes('mp4')?'MP4':'WebM'}).`; };
+  const paint=()=>{
+    const st=sky.state||{dark:0,tintOp:0,tint:'#ffffff'};
+    o.fillStyle=getComputedStyle(map.getContainer()).backgroundColor; o.fillRect(0,0,W,H);
+    const dayTiles=[...document.querySelectorAll('#map .leaflet-tile-loaded')].filter(img=>!img.closest('.sky-night'));
+    for(const [alpha,filter] of [[.55*(1-st.dark),'grayscale(1) contrast(.9) brightness(1.03)'],
+                                 [.55*st.dark,'grayscale(1) invert(1) brightness(.95) contrast(.92)']]){
+      if(alpha<.01) continue;
+      o.save(); o.globalAlpha=alpha; if('filter' in o) o.filter=filter;
+      dayTiles.forEach(img=>{ const r=img.getBoundingClientRect(), im=corsTile(img.src);
+        if(im.ok) o.drawImage(im, r.left-box.left, r.top-box.top, r.width, r.height); });
+      o.restore();
+    }
+    if(st.tintOp>.01){ o.save(); o.globalCompositeOperation='multiply'; o.globalAlpha=st.tintOp; o.fillStyle=st.tint; o.fillRect(0,0,W,H); o.restore(); }
+    o.drawImage(fx,0,0,W,H);
+    // clock
+    const ck=getComputedStyle($('clock')); o.fillStyle=ck.backgroundColor; o.beginPath(); o.roundRect?o.roundRect(16,H-104,236,88,14):o.rect(16,H-104,236,88); o.fill();
+    o.fillStyle=ck.color; o.font='700 44px system-ui'; o.textBaseline='alphabetic'; o.textAlign='left'; o.fillText($('cT').textContent,32,H-56);
+    o.fillStyle=css('--muted'); o.font='13px system-ui'; o.fillText($('cD').textContent,32,H-36);
+    o.fillStyle=ck.color; o.fillText($('cW').textContent,32,H-20);
+    o.textAlign='right'; o.font='600 14px system-ui'; o.fillStyle=css('--accent'); o.fillText("Vélo'v Replay",W-16,H-20);
+    o.font='12px system-ui'; o.fillStyle=css('--muted'); o.fillText($('live').innerText.replace(/\n/g,' · '),W-16,24);
+  };
+  recLoop=setInterval(paint, 1000/30); paint();
+  recorder.start(500); $('rec').hidden=false; $('recBtn').textContent='■ Arrêter';
+  $('recNote').textContent='Enregistrement… la carte peut être déplacée pendant ce temps.';
+  if(!playing) setPlaying(true);
+}
+function stopRec(){ if(!recorder) return; clearInterval(recLoop); recorder.stop(); recorder=null; $('rec').hidden=true; $('recBtn').textContent='● Enregistrer'; }
+$('recBtn').onclick=()=>recorder?stopRec():startRec();
+$('recDay').onclick=()=>{ if(recorder) return; T=R.times[0]??0; frame(true); startRec(); };
+
+/* ---------- controls ---------- */
+function chips(){
+  document.querySelectorAll('[data-s]').forEach(b=>b.setAttribute('aria-pressed', +b.dataset.s===O.speed));
+  document.querySelectorAll('[data-l]').forEach(b=>b.setAttribute('aria-pressed', !!O.layers[b.dataset.l]));
+  store.set('velovReplay',{speed:O.speed, layers:O.layers});
+}
+document.querySelectorAll('[data-s]').forEach(b=>b.onclick=()=>{ O.speed=+b.dataset.s; chips(); });
+document.querySelectorAll('[data-l]').forEach(b=>b.onclick=()=>{ O.layers[b.dataset.l]=!O.layers[b.dataset.l]; chips(); frame(true); });
+$('day').onchange=()=>{ setPlaying(false); T=0; fitted=true; load($('day').value); };
+setInterval(()=>{ if(!playing && follow) frame(true); }, 120);
+matchMedia('(prefers-color-scheme: dark)').addEventListener?.('change',()=>frame(true));
+chips(); resize(); load();
+</script>
+</body>
+</html>

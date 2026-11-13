@@ -1,0 +1,594 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Vélo'v Flux</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<style>
+:root{
+  --bg:#f6f5f2; --panel:#ffffff; --ink:#1d1f22; --muted:#6b6f76; --line:#e3e1dc;
+  --accent:#d6001c; --out:#e4572e; --in:#2f6fd6; --truck:#7b4fd6;
+  --chip:#f0eeea; --chip-on:#1d1f22; --chip-on-ink:#fff; --bar:#d9d6cf;
+  --h1:#f6c453; --h2:#ec7a2e; --h3:#c8203a; --h4:#6d0f3a;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#121315; --panel:#1b1d20; --ink:#ecebe8; --muted:#9a9ea5; --line:#2c2f33;
+    --chip:#25282c; --chip-on:#ecebe8; --chip-on-ink:#121315; --bar:#3a3d42;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#121315; --panel:#1b1d20; --ink:#ecebe8; --muted:#9a9ea5; --line:#2c2f33;
+  --chip:#25282c; --chip-on:#ecebe8; --chip-on-ink:#121315; --bar:#3a3d42;
+}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;background:var(--bg);color:var(--ink);
+  font:14px/1.4 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+#app{display:flex;height:100%}
+#panel{width:340px;flex:none;background:var(--panel);border-right:1px solid var(--line);overflow-y:auto;padding:18px 18px 24px}
+#mapwrap{flex:1;min-width:0;position:relative}
+#map{position:absolute;inset:0;background:var(--bg)}
+.leaflet-tile-pane{filter:grayscale(1) contrast(.92) brightness(1.04);opacity:.62}
+h1{font-size:18px;margin:0 0 2px;letter-spacing:-.01em}
+h1 b{color:var(--accent)}
+.sub{color:var(--muted);font-size:12px;margin-bottom:6px}
+.section{border-top:1px solid var(--line);padding-top:14px;margin-top:14px}
+.label{font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin-bottom:8px}
+.chips{display:flex;flex-wrap:wrap;gap:6px}
+[hidden]{display:none!important}
+.chip{border:0;background:var(--chip);color:var(--ink);padding:6px 10px;border-radius:999px;font:inherit;font-size:13px;cursor:pointer}
+.chip[aria-pressed="true"]{background:var(--chip-on);color:var(--chip-on-ink)}
+.row{margin-bottom:12px}
+.stats{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.stat{background:var(--chip);border-radius:10px;padding:9px 11px}
+.stat .v{font-size:18px;font-weight:600;font-variant-numeric:tabular-nums}
+.stat .k{font-size:12px;color:var(--muted)}
+.note{font-size:12px;color:var(--muted);margin:8px 0 0}
+#hist{display:block;width:100%;height:64px;cursor:pointer}
+.axis{display:flex;justify-content:space-between;font-size:12px;color:var(--muted);font-variant-numeric:tabular-nums}
+.list{display:flex;flex-direction:column;gap:2px}
+.item{display:grid;grid-template-columns:1fr auto;gap:8px;align-items:center;padding:6px 8px;border-radius:8px;cursor:pointer;position:relative;font-size:13px}
+.item:hover{background:var(--chip)}
+.item .t{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.item .n{font-variant-numeric:tabular-nums;font-weight:600}
+.item .b{position:absolute;left:8px;bottom:2px;height:2px;border-radius:2px;background:var(--h2);opacity:.7}
+.ramp{height:10px;border-radius:5px}
+.dates{display:flex;gap:10px;flex-wrap:wrap;font-size:13px;color:var(--muted)}
+.dates input{font:inherit;color:var(--ink);background:var(--chip);border:1px solid var(--line);border-radius:8px;padding:4px 6px;color-scheme:light dark}
+#distChart{display:block;width:100%;height:auto}
+.wxrow{display:grid;grid-template-columns:78px 1fr 64px;gap:8px;align-items:center;font-size:13px;margin:5px 0}
+.wxrow .bar{height:10px;border-radius:5px;background:var(--h2)}
+.wxrow .v{text-align:right;font-variant-numeric:tabular-nums}
+.ends{display:flex;justify-content:space-between;font-size:12px;color:var(--muted);margin-top:3px;font-variant-numeric:tabular-nums}
+#selbox{background:var(--chip);border-radius:10px;padding:10px 12px}
+#selbox .name{font-weight:600}
+.x{border:0;background:none;color:var(--muted);cursor:pointer;font:inherit;font-size:12px;text-decoration:underline;padding:0}
+#empty{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);z-index:500;background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:16px 18px;max-width:320px;text-align:center;box-shadow:0 6px 24px rgba(0,0,0,.12)}
+#busy{position:absolute;right:12px;top:12px;z-index:500;background:var(--panel);border-radius:999px;padding:5px 11px;font-size:12px;color:var(--muted);box-shadow:0 1px 4px rgba(0,0,0,.15)}
+.leaflet-tooltip{font:12.5px/1.35 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+#fold{display:none}
+@media (max-width:760px){
+  #app{flex-direction:column} #panel{width:auto;max-height:62vh;border-right:0;border-bottom:1px solid var(--line);padding:12px 16px}
+  #fold{display:flex;align-items:center;gap:8px;width:100%;border:0;background:var(--chip);color:var(--ink);font:inherit;font-size:13.5px;text-align:left;
+    padding:10px 12px;border-radius:12px;cursor:pointer;min-height:44px;margin-top:4px}
+  #fold .s{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  #fold .k{color:var(--muted);flex:none}
+  #fold .c{flex:none;transition:transform .15s}
+  #panel.open #fold .c{transform:rotate(180deg)}
+  #panel:not(.open) .section{display:none}
+}
+@media (pointer:coarse){ .chip{min-height:40px;padding:8px 13px;font-size:14px} .x{min-height:36px} }
+html.embedded #panel h1{display:none}
+</style>
+<script>/* inside the Vélo'v Control app the tab already names the page */
+try{ if(window.top!==window.self) document.documentElement.classList.add('embedded'); }catch(e){ document.documentElement.classList.add('embedded'); }</script>
+<style>html.embedded h1{display:none}
+@media (pointer:coarse){ .chip{min-height:40px} }</style>
+</head>
+<body>
+<div id="app">
+<aside id="panel">
+  <h1>Vélo'v <b>Flux</b></h1>
+  <div class="sub" id="sub">Chargement…</div>
+  <button id="fold" aria-expanded="false" aria-controls="panel"><span class="k">Filtres</span><span class="s" id="foldSum"></span><span class="c" aria-hidden="true">▾</span></button>
+
+  <div class="section">
+    <div class="label">Afficher</div>
+    <div class="chips row" id="viewChips">
+      <button class="chip" data-v="flows">Flux A → B</button>
+      <button class="chip" data-v="dep">Départs</button>
+      <button class="chip" data-v="arr">Arrivées</button>
+      <button class="chip" data-v="net">Solde</button>
+      <button class="chip" data-v="trucks">Camions</button>
+    </div>
+    <div class="label">Regrouper par</div>
+    <div class="chips" id="groupChips">
+      <button class="chip" data-g="st">Stations</button>
+      <button class="chip" data-g="hex">Hexagones 300 m</button>
+      <button class="chip" data-g="big">Secteurs 1 km</button>
+    </div>
+    <div id="traceRow">
+      <div class="label" style="margin-top:12px">Tracé</div>
+      <div class="chips">
+        <button class="chip" data-t="arcs">Arcs</button>
+        <button class="chip" data-t="streets">Par les rues</button>
+      </div>
+      <p class="note" id="routeNote" hidden></p>
+    </div>
+  </div>
+
+  <div class="section">
+    <div class="label">Période</div>
+    <div class="chips row" id="daysChips">
+      <button class="chip" data-f="days" data-x="1">24 h</button>
+      <button class="chip" data-f="days" data-x="7">7 jours</button>
+      <button class="chip" data-f="days" data-x="30">30 jours</button>
+      <button class="chip" data-f="days" data-x="all">Tout</button>
+      <button class="chip" id="datesChip">Dates…</button>
+    </div>
+    <div class="dates row" id="datesRow" hidden>
+      <label>Du <input type="date" id="dFrom"></label>
+      <label>au <input type="date" id="dTo"></label>
+    </div>
+    <div class="label">Heures</div>
+    <div class="chips row">
+      <button class="chip" data-f="hours" data-x="all">Toutes</button>
+      <button class="chip" data-f="hours" data-x="morning">6–10 h</button>
+      <button class="chip" data-f="hours" data-x="day">10–16 h</button>
+      <button class="chip" data-f="hours" data-x="evening">16–20 h</button>
+      <button class="chip" data-f="hours" data-x="night">20–6 h</button>
+    </div>
+    <svg id="hist" viewBox="0 0 240 64" preserveAspectRatio="none" role="img" aria-label="Trajets par heure"></svg>
+    <div class="axis"><span>0 h</span><span>6 h</span><span>12 h</span><span>18 h</span><span>24 h</span></div>
+    <div class="label" style="margin-top:12px">Jours</div>
+    <div class="chips row">
+      <button class="chip" data-f="dow" data-x="all">Tous</button>
+      <button class="chip" data-f="dow" data-x="wd">Semaine</button>
+      <button class="chip" data-f="dow" data-x="we">Week-end</button>
+    </div>
+    <div class="label">Vélos</div>
+    <div class="chips">
+      <button class="chip" data-f="type" data-x="all">Tous</button>
+      <button class="chip" data-f="type" data-x="mech">Mécaniques</button>
+      <button class="chip" data-f="type" data-x="elec">Électriques</button>
+    </div>
+    <div class="label" style="margin-top:12px">Météo à Lyon</div>
+    <div class="chips">
+      <button class="chip" data-f="wx" data-x="all">Toutes</button>
+      <button class="chip" data-f="wx" data-x="dry">☀ Sec</button>
+      <button class="chip" data-f="wx" data-x="drizzle">🌦 Bruine</button>
+      <button class="chip" data-f="wx" data-x="rain">🌧 Pluie</button>
+    </div>
+  </div>
+
+  <div class="section">
+    <div class="stats" id="stats"></div>
+  </div>
+
+  <div class="section">
+    <div class="label">Distance des trajets <span style="text-transform:none;letter-spacing:0">(à vol d’oiseau)</span></div>
+    <svg id="distChart" viewBox="0 0 300 92" role="img" aria-label="Distances des trajets"></svg>
+    <p class="note" id="distNote"></p>
+  </div>
+
+  <div class="section">
+    <div class="label">Effet de la pluie</div>
+    <div id="wxBox"></div>
+  </div>
+
+  <div class="section" id="selSection" hidden>
+    <div class="label">Sélection</div>
+    <div id="selbox"></div>
+  </div>
+
+  <div class="section">
+    <div class="label">Légende</div>
+    <div id="legend"></div>
+  </div>
+
+  <div class="section">
+    <div class="label" id="topLabel">Principaux flux</div>
+    <div class="list" id="top"></div>
+  </div>
+
+  <div class="section">
+    <p class="note" style="margin:0">Un trajet = un vélo vu à une station, puis à une autre au relevé suivant. Les trajets plus courts que l'intervalle entre deux relevés peuvent manquer, et un vélo peut en faire plusieurs entre deux relevés. Quand au moins 4 vélos font le même trajet dans le même intervalle, c'est un camion de rééquilibrage : il est compté à part.</p>
+  </div>
+</aside>
+<div id="mapwrap">
+  <div id="map"></div>
+  <div id="empty" hidden></div>
+  <div id="busy" hidden>Calcul…</div>
+</div>
+</div>
+
+<script src="/static/velov_sky.js"></script>
+<script>
+const $ = id => document.getElementById(id);
+const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+const nf = n => Number(n).toLocaleString('fr-FR');
+const fmt = t => new Date(t).toLocaleString('fr-FR',{weekday:'short',day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'});
+const esc = s => String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const store = { get(k,d){ try{ const v=localStorage.getItem(k); return v?JSON.parse(v):d; }catch(e){ return d; } },
+                set(k,v){ try{ localStorage.setItem(k,JSON.stringify(v)); }catch(e){} } };
+
+let S = Object.assign({view:'flows', group:'big', days:'7', hours:'all', dow:'all', type:'all', wx:'all', trace:'arcs', from:'', to:''}, store.get('velovHeat',{}));
+let D = null, P = null, sel = null, fitted = false, reqN = 0;
+
+const map = L.map('map',{zoomControl:true, preferCanvas:true}).setView([45.76,4.86],13);
+L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19,
+  attribution:'&copy; contributeurs <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> · Données : Métropole de Lyon / JCDecaux'}).addTo(map);
+const sky = VelovSky.attach(map);
+function skyTime(){                       // a representative moment for the hours shown
+  const h = {morning:8, day:13, evening:18.5, night:23}[S.hours];
+  if(h==null) return new Date();
+  const d = new Date(); d.setHours(Math.floor(h), (h%1)*60, 0, 0); return d;
+}
+setInterval(()=>sky.update(skyTime()), 60000);
+const rend = L.canvas({padding:.4, tolerance:4});
+const layer = L.layerGroup().addTo(map);
+
+/* ---------- geometry ---------- */
+const HEX_SIZE = {hex:175, big:577};       // m, centre to corner: ~300 m and ~1 km across
+let HEX_R = 175;
+function projector(st){
+  const lat0 = st.reduce((a,s)=>a+s[3],0)/st.length, lng0 = st.reduce((a,s)=>a+s[4],0)/st.length;
+  const kx = 111320*Math.cos(lat0*Math.PI/180), ky = 110540;
+  return { to:(lat,lng)=>[(lng-lng0)*kx,(lat-lat0)*ky], back:(x,y)=>[lat0+y/ky, lng0+x/kx] };
+}
+function hexOf(x,y){
+  const q=(Math.sqrt(3)/3*x - y/3)/HEX_R, r=(2/3*y)/HEX_R;
+  let cx=q, cz=r, cy=-cx-cz, rx=Math.round(cx), rz=Math.round(cz), ry=Math.round(cy);
+  const dx=Math.abs(rx-cx), dy=Math.abs(ry-cy), dz=Math.abs(rz-cz);
+  if(dx>dy && dx>dz) rx=-ry-rz; else if(dy>dz) ry=-rx-rz; else rz=-rx-ry;
+  return [rx,rz];
+}
+const hexCentre = (q,r) => [HEX_R*Math.sqrt(3)*(q+r/2), HEX_R*1.5*r];
+function hexCorners(q,r){ const [cx,cy]=hexCentre(q,r);
+  return Array.from({length:6},(_,i)=>{ const a=Math.PI/180*(60*i-30); return [cx+HEX_R*Math.cos(a), cy+HEX_R*Math.sin(a)]; }); }
+
+/* nodes = stations or hexagons, depending on the grouping */
+let nodes = new Map(), keyOf = new Map();
+function buildNodes(){
+  nodes = new Map(); keyOf = new Map(); HEX_R = HEX_SIZE[S.group] || 175;
+  D.stations.forEach(([n,name,commune,lat,lng])=>{
+    const xy = P.to(lat,lng);
+    let k, pos;
+    if(S.group!=='st'){ const [q,r]=hexOf(xy[0],xy[1]); k='h'+q+','+r; pos=hexCentre(q,r); }
+    else { k='s'+n; pos=xy; }
+    keyOf.set(n,k);
+    let nd = nodes.get(k);
+    if(!nd){ nd={k, xy:pos, st:[], dep:0, arr:0, loops:0}; nodes.set(k,nd); }
+    nd.st.push({n,name,commune});
+  });
+  for(const [n,v] of Object.entries(D.dep)) { const nd=nodes.get(keyOf.get(+n)); if(nd) nd.dep+=v; }
+  for(const [n,v] of Object.entries(D.arr)) { const nd=nodes.get(keyOf.get(+n)); if(nd) nd.arr+=v; }
+  for(const [n,v] of Object.entries(D.loop_by)) { const nd=nodes.get(keyOf.get(+n)); if(nd) nd.loops+=v; }
+}
+const nodeName = nd => nd.st.length===1 ? nd.st[0].name
+  : `${nd.st.slice().sort((a,b)=>a.name.length-b.name.length)[0].name} + ${nd.st.length-1}`;
+const nodeTitle = nd => S.group==='st' ? `${nd.st[0].n} – ${nd.st[0].name}` : `${S.group==='big'?'Secteur':'Hexagone'} de ${nd.st.length} station${nd.st.length>1?'s':''}`;
+
+function aggregate(list){              // [a,z,n,e] at station level -> node level
+  const m = new Map(); let inner=0;
+  list.forEach(([a,z,n,e,w])=>{
+    const ka=keyOf.get(a), kz=keyOf.get(z); if(!ka||!kz) return;
+    if(ka===kz){ inner+=n; return; }
+    const id=ka+'>'+kz; let f=m.get(id);
+    if(!f){ f={a:ka,z:kz,n:0,e:0,w:0}; m.set(id,f); }
+    f.n+=n; f.e+=e||0; f.w+=w||0;
+  });
+  return {flows:[...m.values()].sort((x,y)=>y.n-x.n), inner};
+}
+
+/* ---------- colours ---------- */
+const hexRgb = h => { h=h.replace('#',''); return [0,2,4].map(i=>parseInt(h.substr(i,2),16)); };
+function mix(c1,c2,t){ const a=hexRgb(c1), b=hexRgb(c2); return '#'+a.map((v,i)=>Math.round(v+(b[i]-v)*t).toString(16).padStart(2,'0')).join(''); }
+function heat(t){ const s=[css('--h1'),css('--h2'),css('--h3'),css('--h4')]; t=Math.max(0,Math.min(1,t))*3; const i=Math.min(2,Math.floor(t)); return mix(s[i],s[i+1],t-i); }
+function diverge(t){ const bar=css('--bar'); return t<0 ? mix(bar,css('--out'),Math.min(1,-t)) : mix(bar,css('--in'),Math.min(1,t)); }
+
+/* ---------- arcs ---------- */
+function arcPoints(A,B,bend){
+  const dx=B[0]-A[0], dy=B[1]-A[1], len=Math.hypot(dx,dy)||1;
+  const C=[(A[0]+B[0])/2 + dy/len*len*bend, (A[1]+B[1])/2 - dx/len*len*bend];   // bend to the right of travel
+  const pts=[]; for(let i=0;i<=20;i++){ const t=i/20, u=1-t;
+    pts.push([u*u*A[0]+2*u*t*C[0]+t*t*B[0], u*u*A[1]+2*u*t*C[1]+t*t*B[1]]); }
+  return {pts, C};
+}
+function arrowHead(B,C,size){
+  const dx=B[0]-C[0], dy=B[1]-C[1], l=Math.hypot(dx,dy)||1, ux=dx/l, uy=dy/l;
+  const tip=[B[0]-ux*size*.6, B[1]-uy*size*.6], base=[tip[0]-ux*size, tip[1]-uy*size];
+  return [tip,[base[0]-uy*size*.55, base[1]+ux*size*.55],[base[0]+uy*size*.55, base[1]-ux*size*.55]];
+}
+let MINN = 1;                                                      // weakest link drawn
+const strength = (n,max) => max>MINN ? Math.log(n/MINN)/Math.log(max/MINN) : 1;   // weakest drawn -> 0, busiest -> 1
+function drawArc(f, max, colour, opts={}){
+  const A=nodes.get(f.a).xy, B=nodes.get(f.z).xy;
+  const {pts,C}=arcPoints(A,B,.16);
+  const w = .7 + 7.5*Math.pow(strength(f.n,max),1.4);
+  const ll = pts.map(p=>P.back(p[0],p[1]));
+  const line = L.polyline(ll,{renderer:rend, color:colour, weight:w, opacity:opts.op ?? .72, lineCap:'round', dashArray:opts.dash||null}).addTo(layer);
+  const size = 30 + w*12;
+  L.polygon(arrowHead(B,C,size).map(p=>P.back(p[0],p[1])),{renderer:rend, stroke:false, fillColor:colour, fillOpacity:opts.op ?? .85, interactive:false}).addTo(layer);
+  line.bindTooltip(opts.tip(f),{sticky:true});
+  line.on('click',()=>select(f.a));
+  return line;
+}
+
+/* ---------- street routes (cached on the Pi, fetched about one a second) ---------- */
+const routes = new Map();          // "lat,lng;lat,lng" -> {pts:[[lat,lng]...], dist, dur}
+let routeTimer = null, routePending = 0, routeErr = null;
+const rk = (a,b) => `${a[0].toFixed(4)},${a[1].toFixed(4)};${b[0].toFixed(4)},${b[1].toFixed(4)}`;
+function decodePoly(str){ const pts=[]; let i=0, lat=0, lng=0;
+  while(i<str.length){ for(const k of [0,1]){ let b, sh=0, r=0; do{ b=str.charCodeAt(i++)-63; r|=(b&31)<<sh; sh+=5; }while(b>=32);
+    const d=(r&1)?~(r>>1):(r>>1); if(k===0) lat+=d; else lng+=d; } pts.push([lat/1e5, lng/1e5]); }
+  return pts; }
+const nodeLL = k => { const nd=nodes.get(k); return P.back(nd.xy[0], nd.xy[1]); };
+async function needRoutes(list){
+  if(S.trace!=='streets') return;
+  const want=[]; list.forEach(f=>{ const a=nodeLL(f.a), b=nodeLL(f.z); if(!routes.has(rk(a,b))) want.push([a[0],a[1],b[0],b[1]]); });
+  if(!want.length){ routePending=0; routeNoteUpdate(); return; }
+  try{
+    const r = await fetch('/api/x/routes',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({pairs:want})});
+    const d = await r.json(); if(!r.ok) throw new Error(d.error||r.statusText);
+    let added=0;
+    for(const [k,[poly,dist,dur]] of Object.entries(d.routes)){ if(!routes.has(k)){ routes.set(k,{pts:decodePoly(poly),dist,dur}); added++; } }
+    routePending=d.pending; routeErr=d.error;
+    routeNoteUpdate();
+    if(added) draw();
+    clearTimeout(routeTimer);
+    if(d.pending) routeTimer=setTimeout(()=>draw(), Math.min(15000, 2500+d.pending*40));
+  }catch(e){ routeErr=e.message; routeNoteUpdate(); }
+}
+function routeNoteUpdate(){
+  const n=$('routeNote'); n.hidden = S.trace!=='streets' || (!routePending && !routeErr);
+  n.textContent = routeErr && !routePending ? 'Itinéraires indisponibles pour l’instant (' + routeErr + '). Les arcs restent affichés.'
+    : `${nf(routePending)} itinéraire${routePending>1?'s':''} en cours de calcul (environ un par seconde, gardés ensuite pour toujours). Les arcs les remplacent en attendant.`;
+}
+function drawRoute(f, max, colour, opts, R){
+  const w = .7 + 7.5*Math.pow(strength(f.n,max),1.4);
+  const line = L.polyline(R.pts,{renderer:rend, color:colour, weight:w, opacity:opts.op ?? .72, lineCap:'round', lineJoin:'round', dashArray:opts.dash||null}).addTo(layer);
+  const pts = R.pts.map(([la,ln])=>P.to(la,ln)), B=pts[pts.length-1];
+  let C=pts[0]; for(let i=pts.length-2;i>=0;i--){ if(Math.hypot(pts[i][0]-B[0],pts[i][1]-B[1])>60){ C=pts[i]; break; } }
+  L.polygon(arrowHead(B,C,30+w*12).map(p=>P.back(p[0],p[1])),{renderer:rend, stroke:false, fillColor:colour, fillOpacity:opts.op ?? .85, interactive:false}).addTo(layer);
+  line.bindTooltip(opts.tip(f, R),{sticky:true});
+  line.on('click',()=>select(f.a));
+}
+function drawLink(f, max, colour, opts){
+  const R = S.trace==='streets' && routes.get(rk(nodeLL(f.a), nodeLL(f.z)));
+  return R ? drawRoute(f,max,colour,opts,R) : drawArc(f,max,colour,opts);
+}
+const distTxt = (f, R) => { if(R) return `${(R.dist/1000).toFixed(1).replace('.',',')} km par les rues · ~${Math.round(R.dur/60)} min à vélo`;
+  const a=nodes.get(f.a).xy, b=nodes.get(f.z).xy; return `${(Math.hypot(a[0]-b[0],a[1]-b[1])/1000).toFixed(1).replace('.',',')} km à vol d’oiseau`; };
+
+/* ---------- drawing ---------- */
+function draw(){
+  sky.update(skyTime());
+  layer.clearLayers();
+  if(!D) return;
+  buildNodes();
+  const V=S.view;
+  $('empty').hidden = !(D.rides===0 && V!=='trucks' || V==='trucks' && !D.trucks.length);
+  if(!$('empty').hidden) $('empty').innerHTML = D.last ? `<b>Aucun ${V==='trucks'?'camion':'trajet'} pour ces filtres</b><p class="note">Élargissez la période ou les heures.${D.last?' Dernières données : '+fmt(D.last)+'.':''}</p>`
+    : '<b>Pas encore de trajets</b><p class="note">Les trajets apparaissent après deux relevés des numéros de vélos.</p>';
+  if(V==='flows') drawFlows(); else if(V==='trucks') drawTrucks(); else drawHeat();
+  $('traceRow').hidden = !(V==='flows' || V==='trucks');
+  routeNoteUpdate();
+  drawSel();
+}
+
+function nodeDots(op=.5){
+  if(S.group!=='st') nodes.forEach(nd=>{
+    const [q,r]=nd.k.slice(1).split(',').map(Number);
+    L.polygon(hexCorners(q,r).map(p=>P.back(p[0],p[1])),{renderer:rend, color:css('--muted'), weight:.5, opacity:.35, fillOpacity:0, fill:true})
+      .on('click',()=>select(nd.k)).bindTooltip(nodeTitle(nd)).addTo(layer);
+  });
+  else nodes.forEach(nd=>L.circleMarker(P.back(nd.xy[0],nd.xy[1]),{renderer:rend, radius:2.6, stroke:false, fillColor:css('--ink'), fillOpacity:op})
+      .on('click',()=>select(nd.k)).bindTooltip(nodeTitle(nd)).addTo(layer));
+}
+
+function drawFlows(){
+  nodeDots(.45);
+  const {flows, inner} = aggregate(D.pairs);
+  let list = sel ? flows.filter(f=>f.a===sel||f.z===sel) : flows;
+  const LIMIT = sel ? 150 : 300;
+  const shown = list.slice(0,LIMIT), max = shown[0]?.n||1;
+  MINN = shown.length ? shown[shown.length-1].n : 1;
+  const tip = (f,R) => `<b>${esc(nodeName(nodes.get(f.a)))}</b> → <b>${esc(nodeName(nodes.get(f.z)))}</b><br>${nf(f.n)} trajet${f.n>1?'s':''} · ${Math.round(100*f.e/f.n)} % électriques<br>${distTxt(f,R)}`;
+  shown.slice().reverse().forEach(f=>{
+    const t = strength(f.n,max);
+    const col = sel ? (f.a===sel ? css('--out') : css('--in')) : heat(t);
+    drawLink(f, max, col, {tip, op: sel ? .3+.6*t : .18+.72*t});
+  });
+  needRoutes(shown.slice(0, S.trace==='streets' ? 300 : 0));
+  const rest = list.length-shown.length;
+  legendFlows(max, rest, inner);
+  topList(list.slice(0,12).map(f=>({t:`${nodeName(nodes.get(f.a))} → ${nodeName(nodes.get(f.z))}`, n:f.n, go:()=>select(f.a)})), sel?'Flux de la sélection':'Principaux flux');
+}
+
+function drawHeat(){
+  const V=S.view, val = nd => V==='dep'?nd.dep : V==='arr'?nd.arr : nd.arr-nd.dep;
+  const arr=[...nodes.values()].filter(nd=>nd.dep||nd.arr);
+  const max = Math.max(1,...arr.map(nd=>Math.abs(val(nd))));
+  const tip = nd => `<b>${esc(nodeTitle(nd))}</b><br>${nf(nd.dep)} départs · ${nf(nd.arr)} arrivées<br>Solde ${nd.arr-nd.dep>0?'+':''}${nf(nd.arr-nd.dep)}${nd.loops?` · ${nf(nd.loops)} aller-retour${nd.loops>1?'s':''}`:''}`;
+  const colour = nd => V==='net' ? diverge(Math.sign(val(nd))*Math.sqrt(Math.abs(val(nd))/max)) : heat(Math.sqrt(val(nd)/max));
+  if(S.group!=='st'){
+    arr.forEach(nd=>{ const [q,r]=nd.k.slice(1).split(',').map(Number);
+      L.polygon(hexCorners(q,r).map(p=>P.back(p[0],p[1])),{renderer:rend, stroke:nd.k===sel, color:css('--ink'), weight:2.5,
+        fillColor:colour(nd), fillOpacity: V==='net'&&!val(nd) ? .25 : .78}).on('click',()=>select(nd.k)).bindTooltip(tip(nd),{sticky:true}).addTo(layer); });
+  } else {
+    arr.sort((a,b)=>Math.abs(val(a))-Math.abs(val(b))).forEach(nd=>{
+      L.circleMarker(P.back(nd.xy[0],nd.xy[1]),{renderer:rend, radius:3+15*Math.sqrt(Math.abs(val(nd))/max),
+        color: nd.k===sel ? css('--ink') : css('--panel'), weight: nd.k===sel?3:1, fillColor:colour(nd), fillOpacity:.85})
+        .on('click',()=>select(nd.k)).bindTooltip(tip(nd)).addTo(layer); });
+  }
+  legendHeat(max);
+  const ranked = arr.slice().sort((a,b)=> V==='net' ? Math.abs(val(b))-Math.abs(val(a)) : val(b)-val(a)).slice(0,12);
+  topList(ranked.map(nd=>({t:nodeName(nd), n:(V==='net'&&val(nd)>0?'+':'')+nf(val(nd)), w:Math.abs(val(nd))/max, go:()=>select(nd.k,true)})),
+    V==='dep'?'Plus de départs':V==='arr'?'Plus d’arrivées':'Plus gros déséquilibres');
+}
+
+function drawTrucks(){
+  nodeDots(.35);
+  const {flows} = aggregate(D.trucks.map(([a,z,n,runs])=>[a,z,n,0,runs]));
+  const list = sel ? flows.filter(f=>f.a===sel||f.z===sel) : flows;
+  const max = list[0]?.n||1, col=css('--truck'); MINN = list.length ? list[list.length-1].n : 1;
+  const tip = (f,R) => `<b>${esc(nodeName(nodes.get(f.a)))}</b> → <b>${esc(nodeName(nodes.get(f.z)))}</b><br>${nf(f.n)} vélos déplacés en ${f.w} passage${f.w>1?'s':''}<br>${distTxt(f,R)}`;
+  list.slice().reverse().forEach(f=>drawLink(f,max,col,{tip, dash:'8 6', op:.85}));
+  needRoutes(list.slice(0,200));
+  $('legend').innerHTML = `<svg width="100%" height="16"><line x1="2" y1="8" x2="120" y2="8" stroke="${col}" stroke-width="4" stroke-dasharray="8 6" stroke-linecap="round"/></svg>
+    <p class="note">Camions de rééquilibrage : au moins 4 vélos déplacés d’un coup entre deux stations. Épaisseur = nombre de vélos (max ${nf(max)}).</p>`;
+  topList(list.slice(0,12).map(f=>({t:`${nodeName(nodes.get(f.a))} → ${nodeName(nodes.get(f.z))}`, n:nf(f.n)+' v.', w:f.n/max, go:()=>select(f.a)})), 'Plus gros rééquilibrages');
+}
+
+/* ---------- panel ---------- */
+function legendFlows(max, rest, inner){
+  const g = [0,.33,.66,1].map(t=>heat(t)).join(',');
+  $('legend').innerHTML = sel
+    ? `<div style="display:flex;gap:14px;font-size:13px"><span><b style="color:var(--out)">━</b> partent d’ici</span><span><b style="color:var(--in)">━</b> arrivent ici</span></div>`
+    : `<div class="ramp" style="background:linear-gradient(90deg,${g})"></div><div class="ends"><span>${nf(MINN)} trajet${MINN>1?'s':''}</span><span>${nf(max)} trajets</span></div>`;
+  $('legend').innerHTML += `<p class="note">Chaque arc tourne vers la droite dans le sens du trajet, la pointe à l’arrivée : A → B et B → A ne se superposent pas. Épaisseur et couleur = nombre de trajets (échelle logarithmique).${rest>0?` ${nf(rest)} liaisons plus faibles ne sont pas dessinées.`:''}${S.group!=='st'&&inner?` ${nf(inner)} trajets restent dans leur ${S.group==='big'?'secteur':'hexagone'}.`:''} Cliquez une station ou un hexagone pour ne voir que ses flux.</p>`;
+}
+function legendHeat(max){
+  if(S.view==='net'){
+    const g=[diverge(-1),diverge(-.4),diverge(0),diverge(.4),diverge(1)].join(',');
+    $('legend').innerHTML = `<div class="ramp" style="background:linear-gradient(90deg,${g})"></div><div class="ends"><span>perd ${nf(max)} vélos</span><span>équilibre</span><span>gagne ${nf(max)}</span></div>
+      <p class="note">Solde = arrivées − départs. Rouge : la zone se vide (on y prend des vélos), bleu : elle se remplit.</p>`;
+  } else {
+    const g=[0,.33,.66,1].map(t=>heat(t)).join(',');
+    $('legend').innerHTML = `<div class="ramp" style="background:linear-gradient(90deg,${g})"></div><div class="ends"><span>1</span><span>${nf(max)} ${S.view==='dep'?'départs':'arrivées'}</span></div>
+      <p class="note">${S.group!=='st'?`Chaque ${S.group==='big'?'secteur d’environ 1 km':'hexagone d’environ 300 m'} additionne ses stations.`:'Taille et couleur suivent le nombre de trajets.'} Les allers-retours (retour à la même station) ne sont pas comptés.</p>`;
+  }
+}
+function topList(items, label){
+  $('topLabel').textContent = label;
+  const mx = Math.max(1,...items.map(i=>typeof i.n==='number'?i.n:0));
+  $('top').innerHTML = items.length ? '' : '<p class="note" style="margin:0">Rien à afficher.</p>';
+  items.forEach(i=>{ const d=document.createElement('div'); d.className='item';
+    const w = i.w ?? (typeof i.n==='number' ? i.n/mx : 0);
+    d.innerHTML=`<span class="t" title="${esc(i.t)}">${esc(i.t)}</span><span class="n">${typeof i.n==='number'?nf(i.n):esc(i.n)}</span><span class="b" style="width:${Math.max(3,w*80)}%"></span>`;
+    d.onclick=i.go; $('top').appendChild(d); });
+}
+function distStats(){
+  const d=D.dist, labels=['<0,5','0,5–1','1–2','2–3','3–5','5+'], mx=Math.max(1,...d.counts.map(c=>c[0]+c[1]));
+  const red=css('--accent'), green='#2463c7', W=300, bw=W/6;
+  $('distChart').innerHTML = d.counts.map((c,i)=>{ const hm=62*c[0]/mx, he=62*c[1]/mx, x=i*bw+6;
+    return `<rect x="${x}" y="${70-he-hm}" width="${bw-12}" height="${hm}" fill="${red}" opacity=".8" rx="2"><title>${labels[i]} km : ${nf(c[0])} mécaniques</title></rect>
+      <rect x="${x}" y="${70-he}" width="${bw-12}" height="${he}" fill="${green}" opacity=".85" rx="2"><title>${labels[i]} km : ${nf(c[1])} électriques</title></rect>
+      <text x="${x+(bw-12)/2}" y="87" text-anchor="middle" font-size="12" fill="${css('--muted')}">${labels[i]}</text>`; }).join('')
+    + `<line x1="0" y1="70.5" x2="${W}" y2="70.5" stroke="${css('--line')}"/>`;
+  const km = v => v==null ? '–' : v.toFixed(1).replace('.',',')+' km';
+  $('distNote').innerHTML = d.n ? `Médiane : <b style="color:${red}">${km(d.median_m)}</b> en mécanique, <b style="color:${green}">${km(d.median_e)}</b> en électrique. La durée exacte n’est pas connue (seulement l’intervalle entre deux relevés), donc la vitesse non plus.` : 'Pas de trajets.';
+}
+function wxStats(){
+  const w=D.weather, box=$('wxBox');
+  if(!w.ready){ box.innerHTML = `<p class="note" style="margin:0">${w.error ? 'Météo indisponible pour l’instant (Open-Meteo injoignable).' : 'Récupération de la météo de Lyon (Open-Meteo)… Rechargez dans quelques secondes.'}</p>`; return; }
+  const cls=[['dry','☀ Sec'],['drizzle','🌦 Bruine'],['rain','🌧 Pluie']];
+  const rate = k => w.hours[k] ? (w.rides[k]||0)/w.hours[k] : null;
+  const dry=rate('dry'), mx=Math.max(1,...cls.map(([k])=>rate(k)||0));
+  box.innerHTML = cls.map(([k,l])=>{ const r=rate(k);
+    const vs = r!=null && dry && k!=='dry' ? ` <span class="note" style="margin:0">(${r>=dry?'+':''}${Math.round(100*(r/dry-1))} %)</span>` : '';
+    return `<div class="wxrow"><span>${l}</span><div><div class="bar" style="width:${r==null?0:Math.max(2,100*r/mx)}%;opacity:${r==null?0:1};background:${{dry:css('--h1'),drizzle:'#7fa7d9',rain:css('--in')}[k]}"></div></div><span class="v">${r==null?'–':nf(Math.round(r))+'/h'}</span></div>
+      <div class="note" style="margin:-3px 0 4px 86px;font-size:12px">${r==null?'aucune heure observée':`${nf(w.rides[k]||0)} trajets en ${nf(w.hours[k])} h${vs}`}</div>`; }).join('')
+    + `<p class="note">Trajets par heure observée, selon la pluie à Lyon (bruine ≥ ${String(w.thresholds[0]).replace('.',',')} mm/h, pluie ≥ ${w.thresholds[1]} mm/h). Comparez à heures égales : les filtres d’heures et de jours s’appliquent aussi.</p>`;
+}
+function stats(){
+  distStats(); wxStats();
+  const trips = D.rides - D.loops;
+  $('stats').innerHTML = [
+    [nf(trips), 'trajets'],
+    [D.rides ? Math.round(100*D.elec/D.rides)+' %' : '–', 'électriques'],
+    [nf(D.loops), 'allers-retours'],
+    [nf(D.truck_bikes), `vélos par camion (${nf(D.truck_runs)} passage${D.truck_runs>1?'s':''})`],
+  ].map(([v,k])=>`<div class="stat"><div class="v">${v}</div><div class="k">${k}</div></div>`).join('');
+  const dIn = t => t ? new Date(t).toLocaleDateString('sv-SE') : '';
+  $('dFrom').min=$('dTo').min=dIn(D.first); $('dFrom').max=$('dTo').max=dIn(D.last);
+  $('sub').textContent = D.from ? `${fmt(D.from)} → ${fmt(D.to)} · ${nf(D.fetches)} relevés · intervalle médian ${D.median_gap} min`
+                                : (D.last ? 'Aucun trajet pour ces filtres' : 'Pas encore de trajets');
+  const h=D.hourly, mx=Math.max(1,...h), rng={all:null,morning:[6,10],day:[10,16],evening:[16,20],night:[20,6]}[S.hours];
+  const on = i => !rng || (rng[0]<rng[1] ? i>=rng[0]&&i<rng[1] : i>=rng[0]||i<rng[1]);
+  $('hist').innerHTML = h.map((v,i)=>{ const bh=v?Math.max(2,58*v/mx):0;
+    return `<rect x="${i*10+1}" y="${62-bh}" width="8" height="${bh}" rx="1.5" fill="${on(i)?css('--h2'):css('--bar')}"><title>${i} h : ${nf(v)} trajets</title></rect>`; }).join('')
+    + `<line x1="0" y1="62.5" x2="240" y2="62.5" stroke="${css('--line')}"/>`;
+}
+
+/* ---------- selection ---------- */
+function select(k, zoom){
+  sel = sel===k ? null : k;
+  if(sel && zoom){ const nd=nodes.get(sel); map.panTo(P.back(nd.xy[0],nd.xy[1])); }
+  draw();
+}
+function drawSel(){
+  const nd = sel && nodes.get(sel);
+  $('selSection').hidden = !nd;
+  if(!nd) return;
+  const {flows} = aggregate(D.pairs);
+  const outs = flows.filter(f=>f.a===sel).slice(0,4), ins = flows.filter(f=>f.z===sel).slice(0,4);
+  const li = (f,k) => `<div style="display:flex;justify-content:space-between;gap:8px;font-size:12.5px"><span class="t" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(nodeName(nodes.get(f[k])))}</span><b>${nf(f.n)}</b></div>`;
+  $('selbox').innerHTML = `<div class="name">${esc(nodeTitle(nd))}</div>
+    ${nd.st.length>1?`<div class="note" style="margin:2px 0 6px">${nd.st.map(s=>esc(s.name)).join(' · ')}</div>`:''}
+    <div style="font-size:13px;margin:6px 0">${nf(nd.dep)} départs · ${nf(nd.arr)} arrivées · solde <b>${nd.arr-nd.dep>0?'+':''}${nf(nd.arr-nd.dep)}</b></div>
+    ${outs.length?`<div class="label" style="margin:8px 0 4px">Vers</div>${outs.map(f=>li(f,'z')).join('')}`:''}
+    ${ins.length?`<div class="label" style="margin:8px 0 4px">Depuis</div>${ins.map(f=>li(f,'a')).join('')}`:''}
+    <div style="margin-top:8px;display:flex;gap:12px">${S.view!=='flows'?'<button class="x" id="selFlows">Voir ses flux</button>':''}<button class="x" id="selClear">Tout afficher</button></div>`;
+  $('selClear').onclick=()=>{ sel=null; draw(); };
+  if($('selFlows')) $('selFlows').onclick=()=>{ S.view='flows'; chips(); draw(); };
+}
+
+/* ---------- controls ---------- */
+function chips(){
+  document.querySelectorAll('[data-v]').forEach(b=>b.setAttribute('aria-pressed', b.dataset.v===S.view));
+  document.querySelectorAll('[data-g]').forEach(b=>b.setAttribute('aria-pressed', b.dataset.g===S.group));
+  document.querySelectorAll('[data-f]').forEach(b=>b.setAttribute('aria-pressed', S[b.dataset.f]===b.dataset.x && !(b.dataset.f==='days' && (S.from||S.to))));
+  document.querySelectorAll('[data-t]').forEach(b=>b.setAttribute('aria-pressed', b.dataset.t===S.trace));
+  const dates = !!(S.from||S.to); $('datesChip').setAttribute('aria-pressed', dates); $('datesRow').hidden = !dates && !datesOpen;
+  $('dFrom').value=S.from; $('dTo').value=S.to;
+  store.set('velovHeat', S);
+  foldSummary();
+}
+/* phones: the filters fold into one line that says what is selected */
+function foldSummary(){
+  const lab = sel => { const b=document.querySelector(sel+'[aria-pressed="true"]'); return b ? b.textContent.trim() : ''; };
+  const f = k => S[k] && S[k]!=='all' ? lab(`[data-f="${k}"]`) : '';
+  const period = (S.from||S.to) ? (S.from||'…')+' → '+(S.to||'…') : lab('[data-f="days"]');
+  $('foldSum').textContent = [lab('[data-v]'), lab('[data-g]'), period, f('hours'), f('dow'), f('type'), f('wx')].filter(Boolean).join(' · ');
+}
+$('fold').onclick = () => { const o=$('panel').classList.toggle('open'); $('fold').setAttribute('aria-expanded', String(o)); };
+document.querySelectorAll('[data-v]').forEach(b=>b.onclick=()=>{ S.view=b.dataset.v; chips(); draw(); });
+document.querySelectorAll('[data-g]').forEach(b=>b.onclick=()=>{ if(S.group!==b.dataset.g){ S.group=b.dataset.g; sel=null; } chips(); draw(); });
+let datesOpen=false;
+document.querySelectorAll('[data-f]').forEach(b=>b.onclick=()=>{ S[b.dataset.f]=b.dataset.x; if(b.dataset.f==='days'){ S.from=S.to=''; datesOpen=false; } chips(); load(); });
+document.querySelectorAll('[data-t]').forEach(b=>b.onclick=()=>{ S.trace=b.dataset.t; chips(); draw(); });
+$('datesChip').onclick=()=>{ datesOpen=!datesOpen || !!(S.from||S.to); if(S.from||S.to){ S.from=S.to=''; datesOpen=false; load(); } chips(); };
+['dFrom','dTo'].forEach(id=>$(id).onchange=()=>{ S.from=$('dFrom').value; S.to=$('dTo').value;
+  if(S.from && S.to && S.from>S.to){ [S.from,S.to]=[S.to,S.from]; } datesOpen=true; chips(); load(); });
+$('hist').onclick = e => {
+  const r=$('hist').getBoundingClientRect(), h=Math.floor(24*(e.clientX-r.left)/r.width);
+  const pick = h>=6&&h<10?'morning' : h>=10&&h<16?'day' : h>=16&&h<20?'evening' : 'night';
+  S.hours = S.hours===pick ? 'all' : pick; chips(); load();
+};
+
+async function load(){
+  const n=++reqN; $('busy').hidden=false;
+  try{
+    const r = await fetch(`/api/x/heat?days=${S.days}&hours=${S.hours}&dow=${S.dow}&type=${S.type}&wx=${S.wx}&from=${S.from}&to=${S.to}`);
+    const d = await r.json(); if(n!==reqN) return;
+    if(!r.ok || d.error) throw new Error(d.error||r.statusText);
+    D=d; P=projector(D.stations);
+    if(!fitted && D.stations.length){ fitted=true;
+      const used=D.stations.filter(s=>D.dep[s[0]]||D.arr[s[0]]); const b=(used.length?used:D.stations).map(s=>[s[3],s[4]]);
+      map.fitBounds(b,{padding:[20,20]}); }
+    if(sel && !keyOf.size) sel=null;
+    stats(); draw();
+    if(!D.weather.ready && !D.weather.error && !load.wxRetry){ load.wxRetry=true; setTimeout(load, 4000); }
+  }catch(e){
+    $('sub').textContent='Erreur : '+e.message;
+  }finally{ if(n===reqN) $('busy').hidden=true; }
+}
+chips(); load();
+matchMedia('(prefers-color-scheme: dark)').addEventListener?.('change',()=>{ if(D){ stats(); draw(); } });
+</script>
+</body>
+</html>

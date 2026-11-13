@@ -1,0 +1,26 @@
+# Vélo'v Control — its own Docker project, like Encore and Home Assistant.
+# Open http://192.168.1.18:8780 from the PC (8765 is Encore's port on the Pi).
+services:
+  velov:
+    build: .
+    image: velov-control:local
+    container_name: velov-control
+    restart: unless-stopped
+    ports:
+      - "8780:8765"           # Pi port 8780 -> app port 8765 inside the container
+    volumes:
+      - ./data:/data          # database, settings, logs, CSVs (~/velov/data)
+    environment:
+      # Full app from outside through the Cloudflare tunnel, for these Cloudflare Access logins
+      # only (values in velov-pi/velov-access.env, installed as ~/velov/.env). Left empty: only the phone page is reachable from outside.
+      - VELOV_ACCESS_TEAM=${VELOV_ACCESS_TEAM:-}
+      - VELOV_ACCESS_AUD=${VELOV_ACCESS_AUD:-}
+      - VELOV_ACCESS_EMAILS=${VELOV_ACCESS_EMAILS:-}
+    labels:
+      # built here, not pulled: keep Encore's updater away from it
+      - com.centurylinklabs.watchtower.enable=false
+    logging:
+      driver: json-file
+      options:
+        max-size: "1m"
+        max-file: "3"

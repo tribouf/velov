@@ -1,0 +1,734 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Vélo'v Carte</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<style>
+:root{
+  --bg:#f6f5f2; --panel:#ffffff; --ink:#1d1f22; --muted:#6b6f76; --line:#e3e1dc;
+  --accent:#d6001c; --empty:#d64545; --low:#e6b417; --ok:#2463c7; --out:#e4572e; --in:#2f6fd6;
+  --chip:#f0eeea; --chip-on:#1d1f22; --chip-on-ink:#fff;
+  --pie-mech:#d6001c; --pie-elec:#2463c7; --pie-free:#d9d6cf; --pie-edge:#ffffff;
+}
+.pie{background:none;border:0}
+.pie svg{display:block;filter:drop-shadow(0 1px 2px rgba(0,0,0,.35));overflow:visible}
+.pie:hover svg{transform:scale(1.15);transition:transform .12s}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#121315; --panel:#1b1d20; --ink:#ecebe8; --muted:#9a9ea5; --line:#2c2f33;
+    --chip:#25282c; --chip-on:#ecebe8; --chip-on-ink:#121315;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#121315; --panel:#1b1d20; --ink:#ecebe8; --muted:#9a9ea5; --line:#2c2f33;
+  --chip:#25282c; --chip-on:#ecebe8; --chip-on-ink:#121315;
+}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;background:var(--bg);color:var(--ink);
+  font:14px/1.4 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+#app{display:flex;height:100%}
+#panel{width:340px;flex:none;background:var(--panel);border-right:1px solid var(--line);
+  overflow-y:auto;padding:18px 18px 24px}
+#map{flex:1;min-width:0}
+h1{font-size:18px;margin:0 0 2px;letter-spacing:-.01em}
+h1 b{color:var(--accent)}
+.sub{color:var(--muted);font-size:12px;margin-bottom:16px}
+.section{border-top:1px solid var(--line);padding-top:14px;margin-top:14px}
+.label{font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin-bottom:8px}
+.chips{display:flex;flex-wrap:wrap;gap:6px}
+[hidden]{display:none!important}
+.chip{border:0;background:var(--chip);color:var(--ink);padding:6px 10px;border-radius:999px;
+  font:inherit;font-size:13px;cursor:pointer}
+.chip[aria-pressed="true"]{background:var(--chip-on);color:var(--chip-on-ink)}
+.time{font-variant-numeric:tabular-nums;font-size:20px;font-weight:600}
+.timeRow{display:flex;align-items:center;gap:8px;margin-top:8px}
+input[type=range]{flex:1;accent-color:var(--accent)}
+.iconbtn{border:1px solid var(--line);background:var(--panel);color:var(--ink);border-radius:8px;
+  width:34px;height:30px;cursor:pointer;font-size:13px}
+.stats{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.stat{background:var(--chip);border-radius:10px;padding:8px 10px}
+.stat .v{font-size:18px;font-weight:600;font-variant-numeric:tabular-nums}
+.stat .k{font-size:12px;color:var(--muted)}
+.legend{display:flex;flex-direction:column;gap:5px;font-size:12px;color:var(--muted)}
+.legend span.dot{display:inline-block;width:11px;height:11px;border-radius:50%;margin-right:7px;vertical-align:-1px}
+#detail .name{font-weight:600;font-size:15px}
+#detail .addr{color:var(--muted);font-size:12px;margin-bottom:8px}
+#chart{width:100%;height:150px;display:block}
+.hint{color:var(--muted);font-size:12px}
+.toplist{list-style:none;margin:0;padding:0;font-size:13px}
+.toplist li{display:flex;justify-content:space-between;gap:8px;padding:4px 0;cursor:pointer;border-bottom:1px dashed var(--line)}
+.toplist li:hover{color:var(--accent)}
+.toplist .n{font-variant-numeric:tabular-nums;color:var(--muted);white-space:nowrap}
+.leaflet-container{background:var(--bg)}
+.leaflet-popup-content{font:13px/1.4 system-ui,sans-serif}
+@media (max-width:760px){
+  #app{flex-direction:column-reverse}
+  #panel{width:100%;height:46%;border-right:0;border-top:1px solid var(--line);padding:14px 16px}
+  #map{height:54%}
+}
+
+/* ---- rack hover card ---- */
+.leaflet-tooltip.rack-tip{white-space:normal;padding:0;border:1px solid var(--line);border-radius:14px;
+  background:var(--panel);color:var(--ink);box-shadow:0 12px 32px rgba(0,0,0,.28);width:max-content;max-width:min(400px,86vw)}
+.leaflet-tooltip.rack-tip::before{display:none}
+.rack{padding:12px 14px 12px;font:13px/1.35 system-ui,-apple-system,"Segoe UI",sans-serif}
+.rack .rh{display:flex;align-items:baseline;gap:8px;margin-bottom:2px}
+.rack .rn{font-weight:700;font-size:14px;letter-spacing:-.01em}
+.rack .rnum{font:600 11px ui-monospace,Consolas,monospace;color:var(--muted)}
+.rack .rsum{display:flex;gap:10px;flex-wrap:wrap;color:var(--muted);font-size:12px;margin:2px 0 10px}
+.rack .rsum b{color:var(--ink);font-variant-numeric:tabular-nums}
+.rack .k{display:inline-block;width:8px;height:8px;border-radius:2px;margin-right:4px;vertical-align:0}
+.slots{display:grid;grid-template-columns:repeat(var(--cols),minmax(54px,1fr));gap:5px}
+.slot{position:relative;border-radius:8px;padding:4px 6px 5px;min-height:42px;display:flex;flex-direction:column;justify-content:space-between;
+  background:var(--chip);border:1.5px solid transparent;animation:slotIn .28s both;animation-delay:calc(var(--i)*14ms)}
+.slot .no{font:600 10px ui-monospace,Consolas,monospace;color:var(--muted)}
+.slot .pl{font:700 12.5px ui-monospace,Consolas,monospace;letter-spacing:.02em;font-variant-numeric:tabular-nums}
+.slot .st{font-size:10px;line-height:1;letter-spacing:1px;color:var(--low);margin-top:2px}
+.slot .st i{font-style:normal;color:var(--line)}
+.slot .st.bad{color:var(--empty)}
+.slot .rv{font:700 9px/1 system-ui,sans-serif;color:var(--ok);margin-top:3px;letter-spacing:.02em}
+.slot.m{border-color:var(--pie-mech);background:color-mix(in srgb,var(--pie-mech) 9%,var(--panel))}
+.slot.m .pl{color:var(--pie-mech)}
+.slot.e{border-color:var(--pie-elec);background:color-mix(in srgb,var(--pie-elec) 10%,var(--panel))}
+.slot.e .pl{color:var(--pie-elec)}
+.slot.free{border:1.5px dashed var(--line);background:transparent}
+.ramp{height:10px;border-radius:5px;margin:4px 0 2px}
+.ramp-t{display:flex;justify-content:space-between;font:500 10.5px ui-monospace,Consolas,monospace;color:var(--muted)}
+.leaflet-image-layer.holes{image-rendering:auto}
+.slot.occ{background:var(--chip);border:1.5px solid var(--line)}
+.slot.occ .pl{color:var(--muted);font:500 11px system-ui,sans-serif}
+.slot.free .pl{color:var(--muted);font:500 11px system-ui,sans-serif}
+.slot.res{box-shadow:inset 0 0 0 2px var(--low)}
+.slot .tag{position:absolute;top:3px;right:4px;font:700 8.5px system-ui,sans-serif;text-transform:uppercase;letter-spacing:.04em;color:var(--low)}
+.bat{height:3px;border-radius:2px;background:color-mix(in srgb,var(--ink) 12%,transparent);overflow:hidden;margin-top:3px}
+.bat i{display:block;height:100%;background:var(--pie-elec)}
+.bat.low i{background:var(--empty)}
+.slot.sk{background:var(--chip);border-color:transparent;animation:shimmer 1.1s infinite alternate;animation-delay:calc(var(--i)*30ms)}
+.rf{display:flex;align-items:center;gap:6px;margin-top:10px;color:var(--muted);font-size:11.5px}
+.rf .live{width:7px;height:7px;border-radius:50%;background:var(--ok);box-shadow:0 0 0 3px color-mix(in srgb,var(--ok) 25%,transparent)}
+.rf .old{width:7px;height:7px;border-radius:50%;background:var(--low)}
+.rnote{margin-top:6px;font-size:11.5px;color:var(--muted)}
+@keyframes slotIn{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:none}}
+@keyframes shimmer{from{opacity:.45}to{opacity:1}}
+@media (prefers-reduced-motion:reduce){.slot,.slot.sk{animation:none}}
+
+/* ---- boundaries ---- */
+.leaflet-tooltip.area-label{background:transparent;border:0;box-shadow:none;padding:0;color:var(--ink);opacity:.75;
+  font:700 11px/1 system-ui,-apple-system,"Segoe UI",sans-serif;text-transform:uppercase;letter-spacing:.08em;
+  text-shadow:0 0 3px var(--panel),0 0 3px var(--panel),0 0 6px var(--panel)}
+.leaflet-tooltip.area-label::before{display:none}
+.leaflet-tooltip.area-label.arr{font-size:10px;letter-spacing:.04em;opacity:.6}
+.leaflet-tooltip.area-label.vil{font-size:13px;color:var(--ink);opacity:.9}
+#map.zoom-low .area-label.arr{display:none}
+#map.zoom-vlow .area-label{display:none}
+</style>
+<script>/* inside the Vélo'v Control app the tab already names the page */
+try{ if(window.top!==window.self) document.documentElement.classList.add('embedded'); }catch(e){ document.documentElement.classList.add('embedded'); }</script>
+<style>html.embedded h1{display:none}
+@media (pointer:coarse){ .chip{min-height:40px} }</style>
+</head>
+<body>
+<div id="app">
+  <aside id="panel">
+    <h1>Vélo'v <b>Carte</b></h1>
+    <div class="sub" id="sub">Chargement…</div>
+
+    <div>
+      <div class="label">Moment affiché</div>
+      <div class="time" id="timeLabel">–</div>
+      <div class="timeRow">
+        <button class="iconbtn" id="play" title="Lecture">▶</button>
+        <input type="range" id="slider" min="0" max="0" value="0">
+        <button class="iconbtn" id="live" title="Dernier relevé">⏭</button>
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="label">Afficher</div>
+      <div class="chips" id="modes">
+        <button class="chip" data-mode="bikes" aria-pressed="true">Vélos</button>
+        <button class="chip" data-mode="electrical" aria-pressed="false">Électriques</button>
+        <button class="chip" data-mode="mechanical" aria-pressed="false">Mécaniques</button>
+        <button class="chip" data-mode="docks" aria-pressed="false">Places libres</button>
+        <button class="chip" data-mode="pie" aria-pressed="false">Répartition</button>
+        <button class="chip" data-mode="activity" aria-pressed="false">Activité</button>
+      </div>
+      <div class="label" style="margin-top:12px">Forme</div>
+      <div class="chips" id="shapes">
+        <button class="chip" data-shape="points" aria-pressed="true">Points</button>
+        <button class="chip" data-shape="hex" aria-pressed="false">Hexagones</button>
+        <button class="chip" data-shape="voronoi" aria-pressed="false">Voronoï</button>
+      </div>
+      <div class="chips" id="fillRow" style="margin-top:8px" hidden><button class="chip" id="fillBtn" aria-pressed="false" title="Colore aussi les zones sans station (hexagones vides, ou à plus de 450 m d'une station en Voronoï), d'après la moyenne des stations voisines pondérée par la distance, dans les limites de la Métropole">Combler les trous (moyenne lissée)</button></div>
+      <div class="chips" style="margin-top:8px"><button class="chip" id="boundsBtn" aria-pressed="true">Limites des communes et arrondissements</button></div>
+    </div>
+
+    <div class="section">
+      <div class="stats">
+        <div class="stat"><div class="v" id="sBikes">–</div><div class="k">vélos</div></div>
+        <div class="stat"><div class="v" id="sElec">–</div><div class="k">électriques</div></div>
+        <div class="stat"><div class="v" id="sEmpty">–</div><div class="k">stations vides</div></div>
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="label">Légende</div>
+      <div class="legend" id="legend"></div>
+    </div>
+
+    <div class="section" id="detail">
+      <div class="label">Station</div>
+      <div class="hint">Cliquez une station sur la carte pour voir son historique.</div>
+    </div>
+
+    <div class="section">
+      <div class="label">Stations les plus actives (estimation)</div>
+      <ul class="toplist" id="topList"></ul>
+      <div class="hint" style="margin-top:8px">Départs et arrivées estimés à partir des variations toutes les 5 min. Les mouvements de 8 vélos ou plus d'un coup (camions de régulation) sont exclus.</div>
+    </div>
+  </aside>
+  <div id="map"></div>
+</div>
+
+<script src="/static/velov_sky.js"></script>
+<script>
+const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+const fmt = t => new Date(t).toLocaleString('fr-FR',{weekday:'short',day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'});
+const fmtShort = t => new Date(t).toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'});
+
+const map = L.map('map',{zoomControl:true}).setView([45.7695,4.8800],14);
+L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png',{
+  maxZoom:19,
+  attribution:'&copy; contributeurs <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> · Données Vélo\'v : Métropole de Lyon / JCDecaux (Licence Ouverte)'
+}).addTo(map);
+const sky = VelovSky.attach(map);
+
+map.createPane('bounds'); map.getPane('bounds').style.zIndex = 350;
+const boundsLayer = L.layerGroup();
+const layer = L.layerGroup().addTo(map);
+let times=[], idx=0, mode='bikes', snap=null, flows={}, selected=null, playing=null, fitted=false, shape='points';
+try{ shape = localStorage.getItem('velovShape') || 'points'; }catch(e){}
+
+async function get(path){ const r = await fetch(path); if(!r.ok) throw new Error(path); return r.json(); }
+
+function value(s){
+  if(mode==='electrical') return s.electrical ?? 0;
+  if(mode==='mechanical') return s.mechanical ?? 0;
+  if(mode==='docks') return s.docks ?? 0;
+  return s.bikes ?? 0;
+}
+function colorFor(v){ return v===0 ? css('--empty') : v<=2 ? css('--low') : css('--ok'); }
+
+function render(){
+  layer.clearLayers();
+  if(!snap) return;
+  // stations outside the Métropole (e.g. n°202, a JCDecaux test platform near Paris) are not shown
+  const st = snap.stations.filter(inLyon);
+  let bikes=0, elec=0, empty=0;
+  st.forEach(s=>{ bikes+=s.bikes||0; elec+=s.electrical||0; if((s.bikes||0)===0) empty++; });
+  sBikes.textContent=bikes; sElec.textContent=elec; sEmpty.textContent=empty;
+
+  if(shape!=='points'){ renderAreas(st); fitOnce(st); renderLegend(); return; }
+  st.forEach(s=>{
+    if(s.lat==null) return;
+    let marker;
+    if(mode==='pie'){
+      const m=s.mechanical??0, e=s.electrical??0, f=s.docks??0;
+      const total=Math.max(1, s.stands || (m+e+f));
+      const d=Math.round(18+Math.sqrt(total)*3.2);
+      marker = L.marker([s.lat,s.lng],{icon:L.divIcon({className:'pie',html:pieSVG([m,e,f],d,s.status==='CLOSED'),iconSize:[d,d],iconAnchor:[d/2,d/2]})});
+      attachRack(marker, s);
+      marker.on('click',()=>selectStation(s.number));
+      marker.addTo(layer);
+      return;
+    }
+    if(mode==='activity'){
+      const f = flows[s.number] || {out:0,in:0};
+      const tot = f.out+f.in;
+      const net = f.in - f.out;
+      const col = tot===0 ? css('--muted') : net<0 ? css('--out') : css('--in');
+      marker = L.circleMarker([s.lat,s.lng],{radius:5+Math.sqrt(tot)*2.2,color:col,weight:1.5,
+        fillColor:col,fillOpacity:.45});
+      attachRack(marker, s);
+    } else {
+      const v = value(s);
+      const col = s.status==='CLOSED' ? css('--muted') : colorFor(v);
+      marker = L.circleMarker([s.lat,s.lng],{radius:7+Math.min(v,20)*0.55,color:'#fff',weight:1.5,
+        fillColor:col,fillOpacity:.9});
+      attachRack(marker, s);
+    }
+    if(selected===s.number) marker.setStyle({weight:3,color:css('--ink')});
+    marker.on('click',()=>selectStation(s.number));
+    marker.addTo(layer);
+  });
+
+  fitOnce(st);
+  renderLegend();
+}
+function inLyon(s){ return s.lat!=null && s.lat>45.55 && s.lat<45.95 && s.lng>4.65 && s.lng<5.15; }
+function fitOnce(st){
+  if(!fitted && st.length){
+    map.fitBounds(L.latLngBounds(st.filter(s=>s.lat!=null).map(s=>[s.lat,s.lng])),{padding:[30,30]});
+    fitted=true;
+  }
+}
+
+/* ---------- hexagons & Voronoi ---------- */
+const HEX_R = 175;          // m, centre to corner: hexagons about 300 m across
+const CELL_R = 450;         // m, a Voronoi cell never reaches further than this from its station
+function projector(st){
+  const lat0 = st.reduce((a,s)=>a+s.lat,0)/st.length, lng0 = st.reduce((a,s)=>a+s.lng,0)/st.length;
+  const kx = 111320*Math.cos(lat0*Math.PI/180), ky = 110540;
+  return { to:(lat,lng)=>[(lng-lng0)*kx, (lat-lat0)*ky], back:(x,y)=>[lat0+y/ky, lng0+x/kx] };
+}
+function hexOf(x,y){                       // pointy-top axial rounding
+  const q=(Math.sqrt(3)/3*x - y/3)/HEX_R, r=(2/3*y)/HEX_R;
+  let cx=q, cz=r, cy=-cx-cz, rx=Math.round(cx), rz=Math.round(cz), ry=Math.round(cy);
+  const dx=Math.abs(rx-cx), dy=Math.abs(ry-cy), dz=Math.abs(rz-cz);
+  if(dx>dy && dx>dz) rx=-ry-rz; else if(dy>dz) ry=-rx-rz; else rz=-rx-ry;
+  return [rx,rz];
+}
+function hexCorners(q,r){
+  const cx=HEX_R*Math.sqrt(3)*(q+r/2), cy=HEX_R*1.5*r;
+  return Array.from({length:6},(_,i)=>{ const a=Math.PI/180*(60*i-30); return [cx+HEX_R*Math.cos(a), cy+HEX_R*Math.sin(a)]; });
+}
+function clipHalf(poly, ax, ay, nx, ny, c){   // keep points with nx*x+ny*y <= c
+  const out=[];
+  for(let i=0;i<poly.length;i++){
+    const P=poly[i], Q=poly[(i+1)%poly.length];
+    const dp=nx*P[0]+ny*P[1]-c, dq=nx*Q[0]+ny*Q[1]-c;
+    if(dp<=0) out.push(P);
+    if((dp<0&&dq>0)||(dp>0&&dq<0)){ const t=dp/(dp-dq); out.push([P[0]+t*(Q[0]-P[0]), P[1]+t*(Q[1]-P[1])]); }
+  }
+  return out;
+}
+function voronoiCells(pts){
+  return pts.map((p,i)=>{
+    let poly = Array.from({length:28},(_,k)=>{ const a=2*Math.PI*k/28; return [p[0]+CELL_R*Math.cos(a), p[1]+CELL_R*Math.sin(a)]; });
+    for(let j=0;j<pts.length && poly.length;j++){
+      if(j===i) continue;
+      const q=pts[j], dx=q[0]-p[0], dy=q[1]-p[1];
+      if(dx*dx+dy*dy > 4*CELL_R*CELL_R) continue;
+      poly = clipHalf(poly, 0,0, dx, dy, dx*(p[0]+q[0])/2 + dy*(p[1]+q[1])/2);
+    }
+    return poly;
+  });
+}
+function mix(c1,c2,t){
+  const h=c=>c.replace('#',''), a=h(c1), b=h(c2);
+  const ch=(s,i)=>parseInt(s.length===3?s[i]+s[i]:s.slice(i*2,i*2+2),16);
+  return '#'+[0,1,2].map(i=>Math.round(ch(a,i)+(ch(b,i)-ch(a,i))*t).toString(16).padStart(2,'0')).join('');
+}
+/* what a cell shows, from the stations it covers */
+/* continuous colour scales for hexagons and Voronoï */
+function hexRgb(c){ c=c.replace('#',''); if(c.length===3) c=c.split('').map(x=>x+x).join(''); return [0,2,4].map(i=>parseInt(c.slice(i,i+2),16)); }
+function rampColor(stops, v){
+  if(v<=stops[0][0]) return stops[0][1];
+  for(let i=1;i<stops.length;i++) if(v<=stops[i][0]){ const [a,ca]=stops[i-1], [b,cb]=stops[i]; return mix(ca,cb,(v-a)/(b-a)); }
+  return stops[stops.length-1][1];
+}
+const GREY='#b9b5ad';
+function scaleStops(){
+  if(mode==='pie') return [[0,css('--pie-mech')],[.5,GREY],[1,css('--pie-elec')]];
+  if(mode==='activity') return [[-1,css('--out')],[0,GREY],[1,css('--in')]];
+  return [[0,css('--empty')],[1.5,css('--low')],[4,mix(css('--ok'),'#ffffff',.45)],[12,css('--ok')]];
+}
+/* one number per station (or group), in the current view's scale; NaN = nothing to show */
+function metricOf(list){
+  const sum=k=>list.reduce((a,s)=>a+(s[k]||0),0);
+  if(mode==='pie'){ const m=sum('mechanical'), e=sum('electrical'); return m+e ? e/(m+e) : NaN; }
+  if(mode==='activity'){ let o=0,i=0; list.forEach(s=>{ const f=flows[s.number]||{out:0,in:0}; o+=f.out; i+=f.in; });
+    return (i+o) ? Math.max(-1,Math.min(1,(i-o)/Math.max(6,i+o))) : NaN; }
+  return list.reduce((a,s)=>a+value(s),0)/list.length;      // average per station
+}
+const AREA_OP=.58;
+function areaStyle(list){
+  if(!list.some(s=>s.status!=='CLOSED')) return {fill:css('--muted'), op:.3};
+  const v=metricOf(list);
+  if(Number.isNaN(v)) return {fill: mode==='pie'?css('--pie-free'):css('--muted'), op: mode==='pie'?.55:.15};
+  return {fill: rampColor(scaleStops(), v), op: AREA_OP};
+}
+/* holes: everything beyond 450 m from any station, inside the Métropole, coloured by the
+   inverse-distance-weighted mean of the nearest stations (the closest count most) */
+/* gaps worth filling: within FILL_R of a station (a short walk), inside the Métropole */
+const FILL_R=600, FILL_OP=AREA_OP*.62;
+function metroMask(P, pts){
+  const RES=90, polys=[];
+  (boundsData?.communes?.features||[]).forEach(f=>{ const g=f.geometry; if(!g) return;
+    (g.type==='Polygon'?[g.coordinates]:g.coordinates).forEach(pl=>polys.push(pl[0].map(([lng,lat])=>P.to(lat,lng)))); });
+  let x0=Infinity,x1=-Infinity,y0=Infinity,y1=-Infinity;
+  pts.forEach(([x,y])=>{ x0=Math.min(x0,x); x1=Math.max(x1,x); y0=Math.min(y0,y); y1=Math.max(y1,y); });
+  x0-=FILL_R; x1+=FILL_R; y0-=FILL_R; y1+=FILL_R;
+  const W=Math.ceil((x1-x0)/RES), H=Math.ceil((y1-y0)/RES);
+  const mk=document.createElement('canvas'); mk.width=W; mk.height=H; const mc=mk.getContext('2d'); mc.fillStyle='#000';
+  const X=x=>(x-x0)/RES, Y=y=>(y1-y)/RES;
+  mc.beginPath(); pts.forEach(([x,y])=>{ mc.moveTo(X(x)+FILL_R/RES,Y(y)); mc.arc(X(x),Y(y),FILL_R/RES,0,2*Math.PI); }); mc.fill();
+  if(polys.length){ mc.globalCompositeOperation='destination-in'; mc.beginPath();
+    polys.forEach(pl=>{ pl.forEach(([x,y],i)=>i?mc.lineTo(X(x),Y(y)):mc.moveTo(X(x),Y(y))); mc.closePath(); }); mc.fill(); }
+  const data=mc.getImageData(0,0,W,H).data;
+  return {x0,x1,y0,y1,W,H,RES, inside:(x,y)=>{ const i=Math.floor(X(x)), j=Math.floor(Y(y)); return i>=0&&j>=0&&i<W&&j<H && data[(j*W+i)*4+3]>=128; }};
+}
+/* smooth mean: every station counts, weighted by 1/distance^2.5 (nearest dominate) */
+function smoothEstimator(ok, P){
+  const pts=[], vals=[];
+  ok.forEach(s=>{ const v=metricOf([s]); if(!Number.isNaN(v)){ pts.push(P.to(s.lat,s.lng)); vals.push(v); } });
+  if(!pts.length) return null;
+  return (x,y)=>{ let num=0, den=0;
+    for(let k=0;k<pts.length;k++){ const dx=pts[k][0]-x, dy=pts[k][1]-y, d2=dx*dx+dy*dy+1, w=1/(d2*Math.sqrt(Math.sqrt(d2))); num+=w*vals[k]; den+=w; }
+    return num/den; };
+}
+/* hexagons with no station: filled with the smooth mean (drawn on canvas, they are many) */
+let hexFillCache={key:null, layer:null};
+function hexFillLayer(ok, P, occupied){
+  const key=[snap?.t, mode, !!boundsData].join('|');
+  if(hexFillCache.key===key) return hexFillCache.layer;
+  const est=smoothEstimator(ok,P); let group=null;
+  if(est){
+    const M=metroMask(P, ok.map(s=>P.to(s.lat,s.lng))), rend=L.canvas({padding:.5}), stops=scaleStops(), line=css('--surface');
+    group=L.layerGroup();
+    const w=HEX_R*Math.sqrt(3), rmin=Math.floor(M.y0/(1.5*HEX_R))-1, rmax=Math.ceil(M.y1/(1.5*HEX_R))+1;
+    for(let r=rmin;r<=rmax;r++){
+      const qmin=Math.floor(M.x0/w - r/2)-1, qmax=Math.ceil(M.x1/w - r/2)+1;
+      for(let q=qmin;q<=qmax;q++){
+        if(occupied.has(q+','+r)) continue;
+        const cx=w*(q+r/2), cy=1.5*HEX_R*r;
+        if(!M.inside(cx,cy)) continue;
+        const v=est(cx,cy);
+        L.polygon(hexCorners(q,r).map(([x,y])=>P.back(x,y)),{renderer:rend, interactive:false, stroke:false,
+          fillColor:rampColor(stops,v), fillOpacity:FILL_OP}).addTo(group);
+      }
+    }
+  }
+  hexFillCache={key, layer:group};
+  return group;
+}
+let holesCache={key:null, ov:null};
+function holesOverlay(ok, P){
+  const key=[snap?.t, mode, !!boundsData, shape].join('|');
+  if(holesCache.key===key) return holesCache.ov;
+  const ov=buildHoles(ok, P);
+  holesCache={key, ov};
+  return ov;
+}
+function buildHoles(ok, P){
+  const pts=ok.map(s=>P.to(s.lat,s.lng)), est=smoothEstimator(ok,P);
+  if(!est) return null;                              // nothing to average (e.g. no trips yet)
+  const M=metroMask(P, pts), {x0,y1,W,H,RES}=M;
+  if(W*H>900000) return null;
+  const out=document.createElement('canvas'); out.width=W; out.height=H; const oc=out.getContext('2d'); const img=oc.createImageData(W,H);
+  const stops=scaleStops(), A=Math.round(255*FILL_OP), R2=CELL_R*CELL_R, cache=new Map();
+  for(let j=0;j<H;j++) for(let i=0;i<W;i++){
+    const x=x0+(i+.5)*RES, y=y1-(j+.5)*RES;
+    if(!M.inside(x,y)) continue;
+    let inCell=false;
+    for(let k=0;k<pts.length;k++){ const dx=pts[k][0]-x, dy=pts[k][1]-y; if(dx*dx+dy*dy<=R2){ inCell=true; break; } }
+    if(inCell) continue;                             // inside a Voronoï cell: drawn as a polygon
+    const v=Math.round(est(x,y)*100)/100, o=(j*W+i)*4;
+    let c=cache.get(v); if(!c){ c=hexRgb(rampColor(stops,v)); cache.set(v,c); }
+    img.data[o]=c[0]; img.data[o+1]=c[1]; img.data[o+2]=c[2]; img.data[o+3]=A;
+  }
+  oc.putImageData(img,0,0);
+  const sw=P.back(M.x0,M.y0), ne=P.back(M.x1,M.y1);
+  return L.imageOverlay(out.toDataURL(), [sw,ne], {interactive:false, className:'holes'});
+}
+
+function areaTip(list, title){
+  const sum=k=>list.reduce((a,s)=>a+(s[k]||0),0);
+  let io=''; if(mode==='activity'){ let o=0,i=0; list.forEach(s=>{const f=flows[s.number]||{out:0,in:0}; o+=f.out; i+=f.in;}); io=`<br>${o} départs · ${i} arrivées (estimation)`; }
+  const names = list.length>1 ? '<br><span style="color:var(--muted)">'+list.slice(0,4).map(s=>esc(shortName(s.name))).join(', ')+(list.length>4?'…':'')+'</span>' : '';
+  return `<b>${esc(title)}</b><br>${sum('bikes')} vélos · ${sum('electrical')} élec. · ${sum('mechanical')} méca.<br>${sum('docks')} places libres${io}${names}`;
+}
+function renderAreas(st){
+  const ok=st.filter(s=>s.lat!=null); if(!ok.length) return;
+  const P=projector(ok), line=css('--surface');
+  if(shape==='hex'){
+    const cells=new Map();
+    ok.forEach(s=>{ const [x,y]=P.to(s.lat,s.lng), k=hexOf(x,y).join(','); if(!cells.has(k)) cells.set(k,[]); cells.get(k).push(s); });
+    if(fillHoles && !playing){ const f=hexFillLayer(ok,P,new Set(cells.keys())); if(f) f.addTo(layer); }
+    cells.forEach((list,k)=>{
+      const [q,r]=k.split(',').map(Number), sty=areaStyle(list);
+      const poly=L.polygon(hexCorners(q,r).map(([x,y])=>P.back(x,y)),{color:line,weight:1.2,fillColor:sty.fill,fillOpacity:sty.op});
+      poly.bindTooltip(areaTip(list, list.length===1?shortName(list[0].name):`${list.length} stations`),{sticky:true});
+      poly.on('click',()=>{ if(list.length===1) selectStation(list[0].number); else map.fitBounds(poly.getBounds(),{maxZoom:17}); });
+      poly.addTo(layer);
+    });
+  } else {
+    const pts=ok.map(s=>P.to(s.lat,s.lng)), cells=voronoiCells(pts);
+    if(fillHoles && !playing){ const h=holesOverlay(ok,P); if(h) h.addTo(layer); }
+    ok.forEach((s,i)=>{
+      if(cells[i].length<3) return;
+      const sty=areaStyle([s]);
+      const poly=L.polygon(cells[i].map(([x,y])=>P.back(x,y)),{color:line,weight:1,fillColor:sty.fill,fillOpacity:sty.op});
+      attachRack(poly, s);
+      poly.on('click',()=>selectStation(s.number));
+      if(selected===s.number) poly.setStyle({weight:3,color:css('--ink')});
+      poly.addTo(layer);
+      L.circleMarker([s.lat,s.lng],{radius:2.2,stroke:false,fillColor:css('--ink'),fillOpacity:.75,interactive:false}).addTo(layer);
+    });
+  }
+}
+
+function pieSVG(vals, d, closed){
+  const cols=[css('--pie-mech'),css('--pie-elec'),css('--pie-free')];
+  const sum=vals.reduce((a,b)=>a+b,0), r=d/2, c=r;
+  const edge=closed?css('--muted'):css('--pie-edge');
+  if(!sum) return `<svg width="${d}" height="${d}" viewBox="0 0 ${d} ${d}"><circle cx="${c}" cy="${c}" r="${r-1}" fill="${css('--pie-free')}" stroke="${edge}" stroke-width="1.5" stroke-dasharray="${closed?'3 2':'0'}"/></svg>`;
+  let a=-Math.PI/2, paths='';
+  vals.forEach((v,i)=>{
+    if(!v) return;
+    if(v===sum){ paths+=`<circle cx="${c}" cy="${c}" r="${r-1}" fill="${cols[i]}"/>`; return; }
+    const a2=a+v/sum*2*Math.PI, large=(a2-a)>Math.PI?1:0;
+    const x1=c+(r-1)*Math.cos(a), y1=c+(r-1)*Math.sin(a), x2=c+(r-1)*Math.cos(a2), y2=c+(r-1)*Math.sin(a2);
+    paths+=`<path d="M${c},${c} L${x1.toFixed(2)},${y1.toFixed(2)} A${r-1},${r-1} 0 ${large} 1 ${x2.toFixed(2)},${y2.toFixed(2)} Z" fill="${cols[i]}"/>`;
+    a=a2;
+  });
+  return `<svg width="${d}" height="${d}" viewBox="0 0 ${d} ${d}">${paths}<circle cx="${c}" cy="${c}" r="${r-1}" fill="none" stroke="${edge}" stroke-width="1.5" stroke-dasharray="${closed?'3 2':'0'}"/></svg>`;
+}
+
+
+/* ---- rack hover card ---- */
+const rackCache = {};
+function rackCols(n){ return n<=8?4 : n<=15?5 : n<=24?6 : 8; }
+function rackHTML(s, d){
+  const cap = d?.docks?.length || s.stands || 12;
+  const cols = rackCols(cap);
+  const head = `<div class="rh"><span class="rn">${esc(shortName(s.name))}</span><span class="rnum">n°${s.number}</span></div>`;
+  if(!d){
+    const sk = Array.from({length:cap},(_,i)=>`<div class="slot sk" style="--i:${i}"></div>`).join('');
+    return `<div class="rack">${head}<div class="rsum">Lecture des bornes…</div><div class="slots" style="--cols:${cols}">${sk}</div></div>`;
+  }
+  if(d.error && !d.docks?.length){
+    const msg = /404/.test(d.error) ? 'Redémarrez Vélo\'v Control (Fichiers & système → Redémarrer) pour activer le détail des bornes.' : 'Détail des bornes indisponible pour le moment.';
+    return `<div class="rack">${head}<div class="rsum"><span><b>${s.bikes}</b> vélos</span><span><b>${s.docks}</b> places libres</span></div><div class="rnote">${msg}</div></div>`;
+  }
+  const c = d.counts;
+  const slots = d.docks.map((k,i)=>{
+    const b = k.bike;
+    if(!b) return `<div class="slot free" style="--i:${i}" title="Borne ${k.stand} : libre"><span class="no">${k.stand}</span><span class="pl">Libre</span></div>`;
+    if(b.foreign) return `<div class="slot occ" style="--i:${i}" title="Borne ${k.stand} : occupée par un vélo hors réseau Vélo'v"><span class="no">${k.stand}</span><span class="pl">Occupée</span></div>`;
+    const cls = b.type==='ELECTRICAL' ? 'e' : 'm';
+    const bat = (cls==='e' && b.battery!=null) ? `<div class="bat ${b.battery<20?'low':''}" title="Batterie ${b.battery} %"><i style="width:${b.battery}%"></i></div>` : '';
+    const tag = b.reserved ? '<span class="tag" title="Réservé">Rés.</span>' : '';
+    const rate = b.stars ? `<span class="st ${b.stars===1?'bad':''}" aria-hidden="true">${'★'.repeat(b.stars)}<i>${'★'.repeat(3-b.stars)}</i></span>`
+               : b.stars===0 ? '<span class="rv" aria-hidden="true">✓ Révisé</span>' : '';
+    const rtxt = b.stars ? `, ${b.stars} étoile${b.stars>1?'s':''} (${b.ratings} avis depuis la dernière révision)` : b.stars===0 ? ', révisé, pas encore noté' : '';
+    const tip = `Borne ${k.stand} : vélo ${b.number} (${cls==='e'?'électrique':'mécanique'})${b.battery!=null?', batterie '+b.battery+' %':''}${b.reserved?', réservé':''}${rtxt}`;
+    return `<div class="slot ${cls} ${b.reserved?'res':''}" style="--i:${i}" title="${esc(tip)}"><span class="no">${k.stand}</span>${tag}<span class="pl">${b.number}</span>${rate}${bat}</div>`;
+  }).join('');
+  const sum = `<div class="rsum">
+      <span><span class="k" style="background:var(--pie-mech)"></span><b>${c.mechanical}</b> méca.</span>
+      <span><span class="k" style="background:var(--pie-elec)"></span><b>${c.electrical}</b> élec.</span>
+      <span><span class="k" style="border:1.5px dashed var(--muted)"></span><b>${d.free ?? '?'}</b> libres</span>
+      ${c.reserved?`<span><span class="k" style="background:var(--low)"></span><b>${c.reserved}</b> réservé${c.reserved>1?'s':''}</span>`:''}
+      ${(()=>{ const bad=d.docks.filter(k=>k.bike&&k.bike.stars===1).length; return bad?`<span style="color:var(--empty)">★ <b style="color:inherit">${bad}</b> mal noté${bad>1?'s':''}</span>`:''; })()}</div>`;
+  const when = d.at ? new Date(d.at).toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'}) : '?';
+  const foot = d.live
+    ? `<div class="rf"><span class="live"></span>En direct · ${when}</div>`
+    : `<div class="rf"><span class="old"></span>Dernier relevé des numéros · ${when} (direct indisponible)</div>`;
+  const note = d.unavailable ? `<div class="rnote">${d.unavailable} borne${d.unavailable>1?'s':''} « libre${d.unavailable>1?'s':''} » porte${d.unavailable>1?'nt':''} sans doute un vélo hors service (l’API ne liste pas ces vélos).</div>` : '';
+  return `<div class="rack">${head}${sum}<div class="slots" style="--cols:${cols}">${slots}</div>${note}${foot}</div>`;
+}
+function attachRack(marker, s){
+  marker.bindTooltip(() => rackHTML(s, fresh(rackCache[s.number])), {className:'rack-tip', direction:'auto', opacity:1, offset:[0,-6]});
+  marker.on('tooltipopen', async () => {
+    if(fresh(rackCache[s.number])) return;
+    let d;
+    try{ const r = await fetch('/api/x/docks?n='+s.number); d = r.ok ? await r.json() : {error:'HTTP '+r.status}; }
+    catch(e){ d = {error:String(e)}; }
+    rackCache[s.number] = {t:Date.now(), d};
+    if(marker.isTooltipOpen()) marker.setTooltipContent(rackHTML(s, d));
+  });
+}
+function fresh(c){ return c && Date.now()-c.t < 60000 ? c.d : null; }
+function shortName(n){ return String(n||'').replace(/^\d+\s*-\s*/,''); }
+function esc(x){ return String(x??'').replace(/[&<>"]/g,ch=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[ch])); }
+
+
+/* ---- boundaries ---- */
+let boundsData = null;
+let boundsOn = true; try{ boundsOn = localStorage.getItem('velovBounds') !== '0'; }catch(e){}
+function areaShort(name, kind){
+  if(kind!=='arr') return name;
+  const m = String(name).match(/(\d+)\s*(er|e|ème)?/i); return m ? 'Lyon ' + m[1] + (m[1]==='1'?'er':'e') : name;
+}
+async function loadBounds(){
+  try{
+    const r = await fetch('/api/x/boundaries'); if(!r.ok) throw new Error('HTTP '+r.status);
+    const d = await r.json();
+    boundsData = d;
+    if(d.communes) L.geoJSON(d.communes, {pane:'bounds', interactive:false,
+      style: f => { const v = f.properties.name==='Villeurbanne';
+        return {color: css('--ink'), weight: v?2.4:1.5, opacity: v?.75:.5, fill: false}; },
+      onEachFeature: (f,l) => { if(f.properties.name==='Lyon' && d.arrondissements) return;
+        l.bindTooltip(f.properties.name, {permanent:true, direction:'center', className:'area-label'+(f.properties.name==='Villeurbanne'?' vil':'')}); }
+    }).addTo(boundsLayer);
+    if(d.arrondissements) L.geoJSON(d.arrondissements, {pane:'bounds', interactive:false,
+      style: () => ({color: css('--ink'), weight: 1.1, opacity: .45, dashArray: '5 5', fill: false}),
+      onEachFeature: (f,l) => l.bindTooltip(areaShort(f.properties.name,'arr'), {permanent:true, direction:'center', className:'area-label arr'})
+    }).addTo(boundsLayer);
+    const errs = Object.values(d.errors||{});
+    if(errs.length) { boundsBtn.title = 'Chargement partiel : ' + errs.join(' | '); console.warn('boundaries', d.errors); }
+  }catch(e){
+    boundsBtn.disabled = true;
+    boundsBtn.title = 'Redémarrez Vélo\'v Control (Fichiers & système → Redémarrer) pour afficher les limites';
+    boundsBtn.textContent = 'Limites : redémarrage de l’app nécessaire';
+  }
+}
+function applyBounds(){
+  boundsBtn.setAttribute('aria-pressed', boundsOn);
+  if(boundsOn) boundsLayer.addTo(map); else boundsLayer.remove();
+  try{ localStorage.setItem('velovBounds', boundsOn?'1':'0'); }catch(e){}
+}
+boundsBtn.onclick = () => { boundsOn = !boundsOn; applyBounds(); };
+function zoomClasses(){ const z = map.getZoom(), el = document.getElementById('map');
+  el.classList.toggle('zoom-low', z < 13); el.classList.toggle('zoom-vlow', z < 11); }
+map.on('zoomend', zoomClasses); zoomClasses();
+loadBounds().then(()=>{ applyBounds(); if(shape!=='points' && fillHoles) render(); });
+
+let fillHoles=false; try{ fillHoles = localStorage.getItem('velovFill')==='1'; }catch(e){}
+function syncFillRow(){ fillRow.hidden = shape==='points'; fillBtn.setAttribute('aria-pressed', fillHoles); }
+fillBtn.onclick=()=>{ fillHoles=!fillHoles; try{ localStorage.setItem('velovFill', fillHoles?'1':'0'); }catch(e){} syncFillRow(); render(); };
+document.querySelectorAll('#shapes .chip').forEach(b=>{
+  b.setAttribute('aria-pressed', b.dataset.shape===shape);
+  b.onclick=()=>{ shape=b.dataset.shape; try{ localStorage.setItem('velovShape',shape); }catch(e){}
+    document.querySelectorAll('#shapes .chip').forEach(c=>c.setAttribute('aria-pressed',c===b)); syncFillRow(); render(); };
+});
+syncFillRow();
+
+function renderLegend(){
+  const dot = c => `<span class="dot" style="background:${c}"></span>`;
+  const shapeNote = shape==='hex' ? '<div>Hexagones d’environ 300 m : chaque case additionne ses stations</div>'
+                  : shape==='voronoi' ? '<div>Voronoï : la zone la plus proche de chaque station (jusqu’à 450 m)</div>' : '';
+  if(shape!=='points'){
+    const st=scaleStops(), grad=`linear-gradient(90deg,${st.map(([v,c])=>`${c} ${Math.round(100*(v-st[0][0])/(st.at(-1)[0]-st[0][0]))}%`).join(',')})`;
+    const ticks = mode==='pie' ? ['0 % élec.','50 %','100 % élec.']
+                : mode==='activity' ? ['plus de départs','équilibre','plus d’arrivées']
+                : ['0','1,5','4','12+'];
+    const what = mode==='pie' ? 'Part de vélos électriques'
+               : mode==='activity' ? 'Solde des trajets estimés'
+               : (mode==='docks'?'Places libres':mode==='electrical'?'Vélos électriques':mode==='mechanical'?'Vélos mécaniques':'Vélos')+(shape==='hex'?', en moyenne par station':' par station');
+    legend.innerHTML = `<div>${what}</div><div class="ramp" style="background:${grad}"></div>`
+      + (mode==='pie'||mode==='activity' ? `<div class="ramp-t">${ticks.map(t=>`<span>${t}</span>`).join('')}</div>`
+         : `<div class="ramp-t" style="position:relative;height:13px">${st.map(([v])=>`<span style="position:absolute;left:${100*v/12}%;transform:translateX(${v===0?'0':v>=12?'-100%':'-50%'})">${v===12?'12+':String(v).replace('.',',')}</span>`).join('')}</div>`)
+      + `<div style="margin-top:6px">${mode==='pie'?`${dot(css('--pie-free'))}Aucun vélo`:mode==='activity'?`${dot(css('--muted'))}Aucun trajet`:''}</div>`
+      + shapeNote
+      + (fillHoles ? `<div>${shape==='hex'?'Cases sans station':'Au-delà de 450 m'}, jusqu’à 600 m d’une station (estimation, plus pâle) : moyenne lissée des stations voisines (les plus proches comptent le plus)</div>` : '');
+    return;
+  }
+  if(mode==='pie'){
+    legend.innerHTML = `<div>${dot(css('--pie-mech'))}Vélos mécaniques</div>
+       <div>${dot(css('--pie-elec'))}Vélos électriques</div>
+       <div>${dot(css('--pie-free'))}Places libres</div>
+       <div>Taille du cercle = nombre de bornes de la station</div>`;
+    return;
+  }
+  legend.innerHTML = mode==='activity'
+    ? `<div>${dot(css('--out'))}Plus de départs que d'arrivées</div>
+       <div>${dot(css('--in'))}Plus d'arrivées que de départs</div>
+       <div>Taille du cercle = activité totale sur toute la période</div>`
+    : `<div>${dot(css('--empty'))}${mode==='docks'?'Station pleine (0 place)':'Aucun vélo'}</div>
+       <div>${dot(css('--low'))}1–2 disponibles</div>
+       <div>${dot(css('--ok'))}3 ou plus</div>
+       <div>${dot(css('--muted'))}Station fermée</div>
+       <div>Taille du cercle = nombre disponible</div>`;
+}
+
+async function loadSnapshot(){
+  if(!times.length) return;
+  snap = await get('/api/snapshot?t='+encodeURIComponent(times[idx]));
+  timeLabel.textContent = fmt(times[idx]);
+  sky.update(new Date(times[idx]));
+  render();
+}
+
+async function loadFlows(){
+  flows = await get('/api/flows');
+  const names = Object.fromEntries((snap?.stations||[]).map(s=>[s.number,s.name]));
+  const ranked = Object.entries(flows).map(([n,f])=>({n:+n,...f,tot:f.out+f.in}))
+    .filter(r=>r.tot>0).sort((a,b)=>b.tot-a.tot).slice(0,8);
+  topList.innerHTML = ranked.length ? ranked.map(r=>`<li data-n="${r.n}"><span>${names[r.n]||r.n}</span><span class="n">↑${r.out} ↓${r.in}</span></li>`).join('')
+    : '<li class="hint" style="cursor:default">Pas encore assez de relevés.</li>';
+  topList.querySelectorAll('li[data-n]').forEach(li=>li.onclick=()=>selectStation(+li.dataset.n,true));
+}
+
+async function selectStation(n, pan){
+  selected = n;
+  const s = snap.stations.find(x=>x.number===n);
+  if(pan && s) map.setView([s.lat,s.lng],16);
+  const hist = await get('/api/history?n='+n);
+  const f = flows[n] || {out:0,in:0,rebalance:0};
+  detail.innerHTML = `<div class="label">Station</div>
+    <div class="name">${s?.name ?? n}</div>
+    <div class="addr">${s?.address ?? ''} · ${s?.stands ?? '?'} bornes</div>
+    <svg id="chart" viewBox="0 0 300 150" preserveAspectRatio="none"></svg>
+    <div class="hint" style="margin-top:6px">Ligne pleine : vélos · pointillés : électriques<br>
+    Estimation : ${f.out} départs, ${f.in} arrivées${f.rebalance?`, ${f.rebalance} régulation(s)`:''}</div>`;
+  drawChart(hist, s?.stands || 20);
+  render();
+}
+
+function drawChart(h, cap){
+  const svg = document.getElementById('chart');
+  if(h.length<2){ svg.outerHTML='<div class="hint">Historique disponible après quelques relevés.</div>'; return; }
+  const W=300,H=150,P=18;
+  const t0=new Date(h[0].t), t1=new Date(h[h.length-1].t);
+  const maxV=Math.max(cap,...h.map(r=>r.bikes||0));
+  const x=t=>P+(new Date(t)-t0)/(t1-t0||1)*(W-P*2);
+  const y=v=>H-P-(v/maxV)*(H-P*2);
+  const path=k=>h.map((r,i)=>`${i?'L':'M'}${x(r.t).toFixed(1)},${y(r[k]??0).toFixed(1)}`).join('');
+  svg.innerHTML=`
+    <line x1="${P}" y1="${y(0)}" x2="${W-P}" y2="${y(0)}" stroke="${css('--line')}"/>
+    <line x1="${P}" y1="${y(cap)}" x2="${W-P}" y2="${y(cap)}" stroke="${css('--line')}" stroke-dasharray="2 3"/>
+    <path d="${path('bikes')}" fill="none" stroke="${css('--accent')}" stroke-width="2" vector-effect="non-scaling-stroke"/>
+    <path d="${path('electrical')}" fill="none" stroke="${css('--in')}" stroke-width="1.5" stroke-dasharray="4 3" vector-effect="non-scaling-stroke"/>
+    <line x1="${x(times[idx])}" y1="${P}" x2="${x(times[idx])}" y2="${H-P}" stroke="${css('--muted')}" stroke-width=".8"/>
+    <text x="${P}" y="${H-3}" font-size="11.5" fill="${css('--muted')}">${fmtShort(h[0].t)}</text>
+    <text x="${W-P}" y="${H-3}" font-size="11.5" fill="${css('--muted')}" text-anchor="end">${fmtShort(h[h.length-1].t)}</text>
+    <text x="${P}" y="${y(cap)-3}" font-size="11.5" fill="${css('--muted')}">${cap}</text>`;
+}
+
+async function refreshTimes(){
+  const atEnd = idx >= times.length-1;
+  times = await get('/api/times');
+  slider.max = Math.max(0,times.length-1);
+  if(atEnd) idx = times.length-1;
+  slider.value = idx;
+  sub.textContent = times.length
+    ? `${times.length} relevé${times.length>1?'s':''} · du ${fmt(times[0])} au ${fmt(times[times.length-1])}`
+    : 'Aucun relevé pour l’instant';
+}
+
+slider.oninput = ()=>{ idx=+slider.value; loadSnapshot().then(()=>selected&&selectStation(selected)); };
+live.onclick = ()=>{ idx=times.length-1; slider.value=idx; loadSnapshot(); };
+play.onclick = ()=>{
+  if(playing){ clearInterval(playing); playing=null; play.textContent='▶'; return; }
+  if(idx>=times.length-1) idx=0;
+  play.textContent='❚❚';
+  playing=setInterval(()=>{
+    if(idx>=times.length-1){ play.click(); return; }
+    idx++; slider.value=idx; loadSnapshot();
+  },400);
+};
+modes.querySelectorAll('.chip').forEach(b=>b.onclick=()=>{
+  modes.querySelectorAll('.chip').forEach(c=>c.setAttribute('aria-pressed',c===b));
+  mode=b.dataset.mode; render();
+});
+
+(async function init(){
+  try{
+    await refreshTimes();
+    await loadSnapshot();
+    await loadFlows();
+  }catch(e){ sub.textContent='Erreur : '+e.message; console.error(e); }
+  setInterval(async()=>{            // pick up new snapshots every minute
+    const wasEnd = idx>=times.length-1;
+    await refreshTimes();
+    if(wasEnd && !playing){ await loadSnapshot(); await loadFlows(); }
+  },60000);
+})();
+</script>
+</body>
+</html>

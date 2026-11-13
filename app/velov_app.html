@@ -1,0 +1,924 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Vélo'v Control</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>
+/* Layout: a transit control room. Signage-style condensed numerals on a quiet
+   grid, Vélo'v red used only for actions and live state. */
+:root{
+  --bg:#f3f2ef; --surface:#ffffff; --sunk:#ebe9e4; --ink:#17181a; --muted:#6a6d73;
+  --line:#dddad3; --accent:#d6001c; --accent-ink:#ffffff; --ok:#1f8a4c; --warn:#b7791f;
+  --bad:#c0392b; --elec:#2463c7; --console:#121416; --console-ink:#d9e1e8;
+  --display:"Barlow Condensed","Arial Narrow",system-ui,sans-serif;
+  --body:"IBM Plex Sans",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --mono:"IBM Plex Mono",ui-monospace,Consolas,monospace;
+  color-scheme:light;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#101113; --surface:#18191c; --sunk:#202226; --ink:#eceae6; --muted:#9a9ca2;
+    --line:#2b2d31; --accent:#ff3048; --ok:#3fbf73; --warn:#e0a23a; --bad:#ff6b5e;
+    --elec:#5b9bff; --console:#0b0c0d; color-scheme:dark;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#101113; --surface:#18191c; --sunk:#202226; --ink:#eceae6; --muted:#9a9ca2;
+  --line:#2b2d31; --accent:#ff3048; --ok:#3fbf73; --warn:#e0a23a; --bad:#ff6b5e;
+  --elec:#5b9bff; --console:#0b0c0d; color-scheme:dark;
+}
+*{box-sizing:border-box}
+html,body{height:100%}
+body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.45 var(--body)}
+button,select{font:inherit;color:inherit}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+
+/* top bar */
+.top{position:sticky;top:0;z-index:20;background:var(--surface);border-bottom:1px solid var(--line)}
+.top-inner{display:flex;align-items:center;gap:20px;padding:10px max(16px,env(safe-area-inset-right,0px)) 10px max(16px,env(safe-area-inset-left,0px));flex-wrap:wrap}
+.brand{display:flex;align-items:baseline;gap:10px}
+.brand b{font:700 24px/1 var(--display);letter-spacing:.01em}
+.brand b span{color:var(--accent)}
+.brand small{font:500 12px var(--mono);color:var(--muted);text-transform:uppercase;letter-spacing:.08em}
+.phonelink{text-decoration:none;font-size:17px;padding:4px 6px;border-radius:8px;flex:none}
+.phonelink:hover{background:var(--sunk)}
+.tabs{display:flex;gap:2px;background:var(--sunk);padding:3px;border-radius:9px}
+.tab{border:0;background:transparent;padding:6px 14px;border-radius:7px;cursor:pointer;font-weight:500;color:var(--muted)}
+.tab[aria-selected="true"]{background:var(--surface);color:var(--ink);box-shadow:0 1px 2px rgba(0,0,0,.08)}
+.live{margin-left:auto;display:flex;align-items:center;gap:8px;font:600 12.5px var(--sans,system-ui);color:var(--muted);border:0;cursor:pointer;border-radius:999px;padding:5px 10px;white-space:nowrap;background:var(--sunk)}
+.live:hover{filter:brightness(.97)}
+.live:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.live.on{color:var(--ok);background:color-mix(in srgb,var(--ok) 14%,transparent)}
+.live.paused{color:var(--warn);background:color-mix(in srgb,var(--warn) 16%,transparent)}
+.live.paused .dot{background:var(--warn)}
+.live.busy{color:var(--accent);background:color-mix(in srgb,var(--accent) 12%,transparent)}
+.live.down{color:var(--bad,#c0392b);background:color-mix(in srgb,var(--bad,#c0392b) 14%,transparent)}
+.live.down .dot{background:var(--bad,#c0392b)}
+.dot{width:9px;height:9px;border-radius:50%;background:var(--muted)}
+.dot.on{background:var(--ok);box-shadow:0 0 0 0 color-mix(in srgb,var(--ok) 60%,transparent);animation:pulse 2s infinite}
+.dot.busy{background:var(--accent)}
+@keyframes pulse{70%{box-shadow:0 0 0 8px transparent}100%{box-shadow:0 0 0 0 transparent}}
+@media (prefers-reduced-motion:reduce){.dot.on{animation:none}}
+
+main{padding:20px max(16px,env(safe-area-inset-right,0px)) 40px max(16px,env(safe-area-inset-left,0px));max-width:1320px;margin:0 auto}
+[hidden]{display:none!important}
+
+/* board: departure-board numbers */
+.board{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));background:var(--surface);border:1px solid var(--line);border-radius:14px;overflow:hidden}
+.cell{padding:14px 18px;border-right:1px solid var(--line);min-width:0}
+.cell:last-child{border-right:0}
+.cell .k{font:500 11px var(--mono);text-transform:uppercase;letter-spacing:.08em;color:var(--muted)}
+.cell .v{font:600 44px/1.05 var(--display);font-variant-numeric:tabular-nums;margin-top:4px}
+.cell .s{font-size:12px;color:var(--muted)}
+.cell .v.elec{color:var(--elec)} .cell .v.bad{color:var(--bad)}
+.cell.chart{grid-column:span 1}
+
+.grid{display:grid;grid-template-columns:minmax(0,1.25fr) minmax(0,1fr);gap:16px;margin-top:16px}
+.col{display:flex;flex-direction:column;gap:16px;min-width:0}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:18px;min-width:0}
+.card h2{margin:0;font:600 20px/1.1 var(--display);letter-spacing:.01em;text-wrap:balance}
+.card .hd{display:flex;align-items:center;gap:12px;margin-bottom:14px}
+.card .hd .sub{color:var(--muted);font-size:12px}
+.hd .right{margin-left:auto;display:flex;gap:8px;align-items:center}
+.tag{font:500 11px var(--mono);text-transform:uppercase;letter-spacing:.06em;padding:3px 7px;border-radius:5px;background:var(--sunk);color:var(--muted)}
+.tag.warn{background:color-mix(in srgb,var(--warn) 18%,transparent);color:var(--warn)}
+.tag.ok{background:color-mix(in srgb,var(--ok) 16%,transparent);color:var(--ok)}
+.tag.bad{background:color-mix(in srgb,var(--bad) 16%,transparent);color:var(--bad)}
+
+/* buttons */
+.btn{border:1px solid var(--line);background:var(--surface);padding:8px 14px;border-radius:9px;cursor:pointer;font-weight:500;display:inline-flex;align-items:center;gap:8px;white-space:nowrap}
+.btn:hover{border-color:var(--muted)}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
+.btn.primary:hover{filter:brightness(1.07)}
+.btn:disabled{opacity:.55;cursor:default}
+.btn.danger{color:var(--bad)}
+.spin{width:14px;height:14px;border:2px solid currentColor;border-right-color:transparent;border-radius:50%;animation:sp .8s linear infinite}
+@keyframes sp{to{transform:rotate(360deg)}}
+select{background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:6px 8px}
+
+/* switch */
+.switch{position:relative;width:44px;height:24px;flex:none}
+.switch input{position:absolute;inset:0;opacity:0;cursor:pointer;margin:0}
+.switch span{position:absolute;inset:0;background:var(--sunk);border:1px solid var(--line);border-radius:999px;transition:.2s}
+.switch span::after{content:"";position:absolute;top:2px;left:2px;width:18px;height:18px;border-radius:50%;background:var(--muted);transition:.2s}
+.switch input:checked+span{background:var(--ok);border-color:var(--ok)}
+.switch input:checked+span::after{left:22px;background:#fff}
+.switch input:focus-visible+span{outline:2px solid var(--accent);outline-offset:2px}
+
+/* collector */
+.collector{display:grid;grid-template-columns:auto minmax(0,1fr);gap:18px;align-items:center}
+.ring{position:relative;width:118px;height:118px}
+.ring svg{width:100%;height:100%;transform:rotate(-90deg)}
+.ring .c{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center}
+.ring .c b{font:600 30px/1 var(--display);font-variant-numeric:tabular-nums}
+.ring .c small{font:500 10px var(--mono);color:var(--muted);text-transform:uppercase;letter-spacing:.08em;margin-top:3px}
+.facts{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px 18px}
+.fact .k{font:500 10.5px var(--mono);color:var(--muted);text-transform:uppercase;letter-spacing:.07em}
+.fact .v{font-weight:500;font-variant-numeric:tabular-nums}
+.controls{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-top:14px;padding-top:14px;border-top:1px solid var(--line)}
+.controls label{display:flex;align-items:center;gap:8px;color:var(--muted);font-size:13px}
+.notice{margin-top:12px;padding:10px 12px;border-radius:9px;font-size:13px;background:color-mix(in srgb,var(--warn) 13%,transparent);color:var(--ink);border:1px solid color-mix(in srgb,var(--warn) 35%,transparent)}
+.notice.err{background:color-mix(in srgb,var(--bad) 12%,transparent);border-color:color-mix(in srgb,var(--bad) 35%,transparent)}
+
+/* chart */
+.chartbox{position:relative}
+#chart{width:100%;height:190px;display:block}
+.legend{display:flex;gap:14px;font-size:12px;color:var(--muted)}
+.legend i{display:inline-block;width:10px;height:3px;border-radius:2px;margin-right:6px;vertical-align:middle}
+.tip{position:absolute;pointer-events:none;background:var(--ink);color:var(--bg);font:500 12px var(--mono);padding:5px 8px;border-radius:6px;transform:translate(-50%,-110%);white-space:nowrap}
+
+/* console */
+.console{background:var(--console);color:var(--console-ink);border-radius:10px;font:12.5px/1.55 var(--mono);padding:12px 14px;height:250px;overflow:auto;white-space:pre-wrap;word-break:break-word}
+.console .muted{color:#7d8790}
+.console .hl{color:#7ee2a8}
+.console .er{color:#ff8a80}
+.jobs{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px}
+.jobchip{border:1px solid var(--line);background:var(--surface);border-radius:999px;padding:3px 10px;font-size:12px;cursor:pointer;display:flex;gap:6px;align-items:center}
+.jobchip[aria-pressed="true"]{border-color:var(--ink)}
+.jobchip i{width:7px;height:7px;border-radius:50%;background:var(--muted)}
+.jobchip i.running{background:var(--accent)} .jobchip i.done{background:var(--ok)} .jobchip i.failed{background:var(--bad)}
+
+/* bikes card */
+.bikeid{display:flex;gap:10px;align-items:center;margin:2px 0 12px}
+.plate{font:600 15px/1 var(--mono);padding:6px 9px;border-radius:6px;border:1.5px solid var(--ink);letter-spacing:.06em}
+.plate.e{border-color:var(--elec);color:var(--elec)}
+.small{font-size:12.5px;color:var(--muted)}
+
+/* trips */
+.routes{display:flex;flex-direction:column;gap:8px}
+.route{display:grid;grid-template-columns:minmax(0,1fr) 18px minmax(0,1fr) 36px;gap:10px;align-items:center;font-size:13px}
+.route .st{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.route .arrow{color:var(--muted)}
+.route .n{text-align:right;font:600 18px var(--display);font-variant-numeric:tabular-nums;color:var(--accent)}
+.bar{height:4px;border-radius:2px;background:var(--accent);opacity:.25;grid-column:1/-1}
+.tablewrap{overflow-x:auto;margin-top:14px}
+table{border-collapse:collapse;width:100%;font-size:13px}
+th{text-align:left;font:500 10.5px var(--mono);text-transform:uppercase;letter-spacing:.07em;color:var(--muted);padding:6px 8px;border-bottom:1px solid var(--line);white-space:nowrap}
+td{padding:7px 8px;border-bottom:1px solid var(--line);font-variant-numeric:tabular-nums;vertical-align:top}
+tr:last-child td{border-bottom:0}
+.empty{padding:22px;border:1px dashed var(--line);border-radius:12px;color:var(--muted);text-align:center}
+.empty b{display:block;color:var(--ink);font:600 18px var(--display);margin-bottom:4px}
+
+/* files */
+.files a{color:var(--ink);text-decoration:none;font-family:var(--mono);font-size:13px}
+.files a:hover{color:var(--accent)}
+
+/* map view */
+#mapview,#heatview,#replayview,#bikesview,#nearview{height:calc(100vh - 62px);padding:0;max-width:none}
+#mapframe,#heatframe,#replayframe,#bikesframe,#nearframe{width:100%;height:100%;border:0;display:block;background:var(--bg)}
+
+/* confirm */
+.confirm{display:flex;gap:8px;align-items:center;font-size:13px}
+
+/* toast */
+#toast{position:fixed;left:50%;bottom:calc(20px + env(safe-area-inset-bottom,0px));transform:translateX(-50%) translateY(20px);background:var(--ink);color:var(--bg);padding:10px 16px;border-radius:10px;font-weight:500;opacity:0;transition:.25s;z-index:50;pointer-events:none}
+#toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+
+@media (max-width:1400px){ .live .clock{display:none} }
+@media (max-width:1200px){ .brand small{display:none} }
+@media (max-width:1150px){ .tab{padding:6px 9px} }
+@media (max-width:980px){
+  .grid{grid-template-columns:minmax(0,1fr)}
+  .board{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .cell{border-bottom:1px solid var(--line)}
+  .cell:nth-child(2n){border-right:0}
+  .cell:last-child{grid-column:1/-1;border-bottom:0}
+}
+@media (max-width:520px){
+  .collector{grid-template-columns:minmax(0,1fr);justify-items:center}
+  .facts{width:100%}
+  .live .clock{display:none}
+}
+
+/* ---- Aujourd'hui ---- */
+.today-hd{display:flex;align-items:baseline;gap:14px;flex-wrap:wrap;margin:2px 2px 14px}
+.today-hd h1{margin:0;font:700 30px/1.05 var(--display);letter-spacing:.005em}
+.legend i.ln{height:0;border-top:2px dashed var(--muted);background:none}
+.tdstats{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin-bottom:10px}
+.tdstats .fact{background:var(--sunk);border-radius:10px;padding:9px 12px}
+.tdstats .v{font:600 24px/1.1 var(--display);font-variant-numeric:tabular-nums}
+.tdstats .k{font-size:12px;color:var(--muted)}
+#tdHours{display:block;width:100%;height:170px}
+.busy{display:flex;flex-direction:column;gap:2px}
+.busy .row{display:grid;grid-template-columns:22px minmax(0,1fr) auto;gap:10px;align-items:center;padding:7px 4px;border-bottom:1px solid var(--line);font-size:13.5px}
+.busy .row:last-child{border-bottom:0}
+.busy .rk{font:700 13px var(--display);color:var(--muted);text-align:center}
+.busy .nm{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:600}
+.busy .nn{font-variant-numeric:tabular-nums;color:var(--muted);white-space:nowrap}
+.busy .nn b{color:var(--ink)}
+.busy .bar{grid-column:2/4;height:4px;border-radius:2px;background:var(--sunk);overflow:hidden;margin-top:-2px}
+.busy .bar i{display:block;height:100%;background:var(--accent);opacity:.75}
+.wxnow{display:flex;align-items:center;gap:14px}
+.wxnow .big{font:700 34px/1 var(--display);font-variant-numeric:tabular-nums}
+.wxstrip{display:grid;grid-template-columns:repeat(12,minmax(0,1fr));gap:4px;margin-top:12px}
+.wxh{display:flex;flex-direction:column;align-items:center;gap:3px;font-size:12px;color:var(--muted);font-variant-numeric:tabular-nums}
+.wxh .rb{width:100%;height:30px;border-radius:5px;background:var(--sunk);display:flex;align-items:flex-end;overflow:hidden}
+.wxh .rb i{display:block;width:100%;background:var(--elec);opacity:.75}
+.wxh.now{color:var(--ink);font-weight:700}
+.shortcuts{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+.shortcuts .btn{justify-content:flex-start;text-align:left}
+.stale{display:inline-block;font-size:12px;color:var(--warn);background:color-mix(in srgb,var(--warn) 14%,transparent);border-radius:999px;padding:3px 9px}
+
+/* ---- phone & tablet navigation ---- */
+.bottombar,.sheet{display:none}
+@media (max-width:900px){
+  .top .tabs{display:none}
+  .top-inner{gap:10px;padding-block:8px}
+  .brand b{font-size:20px}
+  .bottombar{display:grid;grid-template-columns:repeat(5,1fr);position:fixed;left:0;right:0;bottom:0;z-index:30;background:var(--surface);border-top:1px solid var(--line);
+    padding:4px max(6px,env(safe-area-inset-right,0px)) calc(4px + env(safe-area-inset-bottom,0px)) max(6px,env(safe-area-inset-left,0px))}
+  .bb{border:0;background:none;color:var(--muted);font:600 11.5px/1.2 var(--sans,system-ui);display:flex;flex-direction:column;align-items:center;gap:3px;padding:6px 2px;min-height:52px;border-radius:10px;cursor:pointer}
+  .bb .ic{font-size:19px;line-height:1;filter:grayscale(1);opacity:.75}
+  .bb[aria-current="page"]{color:var(--accent);background:color-mix(in srgb,var(--accent) 8%,transparent)}
+  .bb[aria-current="page"] .ic{filter:none;opacity:1}
+  .sheet:not([hidden]){display:block;position:fixed;inset:0;z-index:29;background:rgba(0,0,0,.28)}
+  .sheet-in{position:absolute;left:10px;right:10px;bottom:calc(72px + env(safe-area-inset-bottom,0px));background:var(--surface);border-radius:16px;padding:8px;box-shadow:0 10px 30px rgba(0,0,0,.25);display:flex;flex-direction:column}
+  .sh{border:0;background:none;color:var(--ink);font:600 16px var(--sans,system-ui);text-align:left;padding:14px 14px;border-radius:10px;min-height:48px;cursor:pointer}
+  .sh[aria-current="page"]{color:var(--accent);background:var(--sunk)}
+  main{padding-bottom:calc(84px + env(safe-area-inset-bottom,0px))}
+  #mapview,#heatview,#replayview,#bikesview,#nearview{height:calc(100dvh - 52px - 64px - env(safe-area-inset-bottom,0px)) !important;padding-bottom:0}
+  .board{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .cell{padding:11px 14px}
+  .cell .v{font-size:32px}
+  .card .hd{flex-wrap:wrap} .card .hd .sub{flex-basis:100%;order:3}
+  .hd .right{margin-left:0;flex-basis:100%;order:4}
+  .today-hd h1{font-size:24px}
+  .tdstats .v{font-size:20px}
+  .wxstrip{grid-template-columns:repeat(6,minmax(0,1fr))}
+  .wxstrip .wxh:nth-child(n+7){display:none}
+}
+@media (pointer:coarse){ .btn{min-height:42px} .tab{min-height:40px} select{min-height:40px} }
+
+/* ---- About ---- */
+.ab-hero{padding:6px 2px 18px}
+.ab-hero h1{margin:0;font:700 40px/1 var(--display);letter-spacing:.005em;text-wrap:balance}
+.ab-hero p{margin:8px 0 0;color:var(--muted);max-width:75ch}
+.ab-sched{overflow-x:auto}
+#abSched{display:block;width:100%;min-width:640px;height:250px}
+.ab-legend{margin-top:8px}
+.legend i.hatch{background:repeating-linear-gradient(135deg,var(--accent) 0 3px,transparent 3px 6px);opacity:.75}
+.ab-grid{margin-top:16px;align-items:start}
+.ab-t td,.ab-t th{vertical-align:top}
+.ab-t td:first-child{font-weight:600;white-space:nowrap}
+.ab-t a{color:var(--ink)}
+.ab-t .num{font:600 18px/1 var(--display);font-variant-numeric:tabular-nums;white-space:nowrap}
+.ab-t tr.now td{background:color-mix(in srgb,var(--accent) 8%,transparent)}
+.ab-t tr.now td:first-child{box-shadow:inset 3px 0 0 var(--accent)}
+.ab-p{margin:12px 0 0;line-height:1.55}
+.ab-ol{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:8px;font-size:13.5px}
+.ab-store{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px}
+.ab-store .fact{background:var(--sunk);border-radius:10px;padding:10px 12px}
+.ab-store .fact .v{font:600 26px/1.1 var(--display);font-variant-numeric:tabular-nums}
+.starbar{display:flex;flex-direction:column;gap:7px;margin-top:12px}
+.starrow{display:grid;grid-template-columns:76px minmax(0,1fr) 64px;gap:10px;align-items:center;font-size:13px}
+.starrow .s{color:var(--warn);letter-spacing:1px}
+.starrow .s i{font-style:normal;color:var(--line)}
+.starrow .track{height:10px;border-radius:5px;background:var(--sunk);overflow:hidden}
+.starrow .track b{display:block;height:100%;border-radius:5px}
+.starrow .n{text-align:right;font-variant-numeric:tabular-nums;color:var(--muted)}
+.ab-foot{margin-top:20px;color:var(--muted);font-size:12.5px;display:flex;flex-wrap:wrap;gap:6px 18px}
+.ab-foot a{color:var(--muted)}
+@media (max-width:520px){.ab-hero h1{font-size:32px}}
+</style>
+</head>
+<body>
+<header class="top">
+  <div class="top-inner">
+    <div class="brand"><b>Vélo'v <span>Control</span></b><small>Grand Lyon</small></div>
+    <nav class="tabs" role="tablist" aria-label="Sections">
+      <button class="tab" role="tab" data-view="dash" aria-selected="true">Aujourd'hui</button>
+      <button class="tab" role="tab" data-view="map" aria-selected="false">Carte</button>
+      <button class="tab" role="tab" data-view="trips" aria-selected="false">Trajets</button>
+      <button class="tab" role="tab" data-view="heat" aria-selected="false">Flux</button>
+      <button class="tab" role="tab" data-view="replay" aria-selected="false">Replay</button>
+      <button class="tab" role="tab" data-view="bikes" aria-selected="false">Vélos</button>
+      <button class="tab" role="tab" data-view="near" aria-selected="false">Près de moi</button>
+      <button class="tab" role="tab" data-view="files" aria-selected="false">Système</button>
+      <button class="tab" role="tab" data-view="about" aria-selected="false">À propos</button>
+    </nav>
+    <button class="live" id="livePill" type="button" title="État de la collecte : ouvre Système"><span class="dot" id="liveDot"></span><span id="liveText">Connexion…</span><span class="clock" id="clock"></span></button>
+  </div>
+</header>
+
+<!-- phone & tablet: bottom bar -->
+<nav class="bottombar" aria-label="Sections">
+  <button class="bb" data-view="map"><span class="ic" aria-hidden="true">🗺</span>Carte</button>
+  <button class="bb" data-view="heat"><span class="ic" aria-hidden="true">⇄</span>Flux</button>
+  <button class="bb" data-view="bikes"><span class="ic" aria-hidden="true">🚲</span>Vélos</button>
+  <button class="bb" data-view="near"><span class="ic" aria-hidden="true">📍</span>Près de moi</button>
+  <button class="bb" id="moreBtn" aria-expanded="false" aria-controls="moreSheet"><span class="ic" aria-hidden="true">☰</span>Plus</button>
+</nav>
+<div class="sheet" id="moreSheet" hidden>
+  <div class="sheet-in" role="menu" aria-label="Autres sections">
+    <button class="sh" data-view="dash" role="menuitem">Aujourd'hui</button>
+    <button class="sh" data-view="trips" role="menuitem">Trajets</button>
+    <button class="sh" data-view="replay" role="menuitem">Replay</button>
+    <button class="sh" data-view="files" role="menuitem">Système</button>
+    <button class="sh" data-view="about" role="menuitem">À propos</button>
+  </div>
+</div>
+
+<!-- AUJOURD'HUI -->
+<main class="view" id="dash">
+  <div class="today-hd"><h1 id="tdTitle">Aujourd'hui à Lyon</h1><span class="sub" id="tdSub"></span></div>
+  <section class="board" aria-label="En ce moment">
+    <div class="cell"><div class="k">Vélos garés</div><div class="v" id="bBikes">–</div><div class="s" id="bAsOf">en attente de données</div></div>
+    <div class="cell"><div class="k">Électriques</div><div class="v elec" id="bElec">–</div><div class="s" id="bElecPct">&nbsp;</div></div>
+    <div class="cell"><div class="k">Mécaniques</div><div class="v" id="bMech">–</div><div class="s">&nbsp;</div></div>
+    <div class="cell"><div class="k">Stations vides</div><div class="v bad" id="bEmpty">–</div><div class="s" id="bStations">&nbsp;</div></div>
+    <div class="cell"><div class="k">Stations pleines</div><div class="v" id="bFull">–</div><div class="s">plus une borne libre</div></div>
+  </section>
+
+  <div class="grid">
+    <div class="col">
+      <section class="card">
+        <div class="hd"><h2 id="tdTripsTitle">Trajets aujourd'hui</h2><span class="sub" id="tdTripsSub"></span>
+          <div class="right legend"><span><i style="background:var(--accent)"></i>ce jour</span><span><i class="ln"></i>journée type</span></div></div>
+        <div class="tdstats" id="tdStats"></div>
+        <svg id="tdHours" role="img" aria-label="Trajets par heure"></svg>
+      </section>
+      <section class="card">
+        <div class="hd"><h2>Vélos disponibles, dernières 24 h</h2>
+          <div class="right legend"><span><i style="background:var(--accent)"></i>Tous</span><span><i style="background:var(--elec)"></i>Électriques</span></div></div>
+        <div class="chartbox"><svg id="chart" role="img" aria-label="Vélos disponibles au fil du temps"></svg><div class="tip" id="tip" hidden></div></div>
+      </section>
+    </div>
+    <div class="col">
+      <section class="card">
+        <div class="hd"><h2>Stations les plus actives</h2><span class="sub">départs · arrivées</span></div>
+        <div id="tdBusy"></div>
+      </section>
+      <section class="card">
+        <div class="hd"><h2>Météo à Lyon</h2><span class="sub">Open-Meteo</span></div>
+        <div id="tdWx"></div>
+      </section>
+      <section class="card">
+        <div class="hd"><h2>Explorer</h2></div>
+        <div class="shortcuts">
+          <button class="btn" data-go="replay">▶ Rejouer la journée</button>
+          <button class="btn" data-go="heat">⇄ Flux de la journée</button>
+          <button class="btn" data-go="bikes">🚲 Suivre des vélos</button>
+          <button class="btn" data-go="map">🗺 Carte en direct</button>
+        </div>
+      </section>
+    </div>
+  </div>
+</main>
+
+<!-- CARTE, FLUX, REPLAY, VÉLOS, PRÈS DE MOI -->
+<main class="view" id="mapview" hidden><iframe id="mapframe" title="Carte des stations" loading="lazy"></iframe></main>
+<main class="view" id="heatview" hidden><iframe id="heatframe" title="Flux des trajets" loading="lazy"></iframe></main>
+<main class="view" id="replayview" hidden><iframe id="replayframe" title="Replay d'une journée" loading="lazy" allow="fullscreen"></iframe></main>
+<main class="view" id="bikesview" hidden><iframe id="bikesframe" title="Suivi de vélos" loading="lazy"></iframe></main>
+<main class="view" id="nearview" hidden><iframe id="nearframe" title="Stations près de moi" loading="lazy" allow="geolocation"></iframe></main>
+
+<!-- TRAJETS -->
+<main class="view" id="trips" hidden>
+  <div class="grid">
+    <section class="card">
+      <div class="hd"><h2>Trajets les plus fréquents</h2><span class="sub" id="tripsSub"></span></div>
+      <div id="routes"></div>
+    </section>
+    <section class="card">
+      <div class="hd"><h2>Comment c'est compté</h2></div>
+      <p class="small" style="margin:0 0 8px">Chaque relevé note à quelle station se trouve chaque vélo. Un vélo vu à la station A puis à la station B au relevé suivant fait un trajet observé.</p>
+      <p class="small" style="margin:0">Les trajets plus courts que l'intervalle entre deux relevés peuvent manquer, et un vélo peut en faire plusieurs entre deux relevés. Les camions de rééquilibrage (4 vélos ou plus d'un coup) sont exclus.</p>
+    </section>
+  </div>
+  <section class="card" style="margin-top:16px">
+    <div class="hd"><h2>Derniers trajets</h2><span class="sub" id="tripsCount"></span></div>
+    <div id="tripTable"></div>
+  </section>
+</main>
+
+<!-- SYSTÈME -->
+<main class="view" id="files" hidden>
+  <div class="grid">
+    <div class="col">
+      <section class="card">
+        <div class="hd"><h2>Collecte des stations</h2><span class="tag" id="colTag">–</span>
+          <div class="right"><label class="switch" title="Collecte marche/arrêt"><input type="checkbox" id="colToggle" aria-label="Collecte marche ou arrêt"><span></span></label></div></div>
+        <div class="collector">
+          <div class="ring" aria-hidden="true">
+            <svg viewBox="0 0 120 120"><circle cx="60" cy="60" r="52" fill="none" stroke="var(--sunk)" stroke-width="9"/>
+              <circle id="ringArc" cx="60" cy="60" r="52" fill="none" stroke="var(--accent)" stroke-width="9" stroke-linecap="round" stroke-dasharray="326.7" stroke-dashoffset="326.7"/></svg>
+            <div class="c"><b id="countdown">–</b><small>avant le suivant</small></div>
+          </div>
+          <div class="facts">
+            <div class="fact"><div class="k">Relevés</div><div class="v" id="fSnaps">–</div></div>
+            <div class="fact"><div class="k">Depuis</div><div class="v" id="fSince">–</div></div>
+            <div class="fact"><div class="k">Dernier relevé</div><div class="v" id="fLast">–</div></div>
+            <div class="fact"><div class="k">Stations par relevé</div><div class="v" id="fCount">–</div></div>
+          </div>
+        </div>
+        <div class="controls">
+          <label for="interval">Toutes les</label>
+          <select id="interval"><option value="1">1 min</option><option value="2">2 min</option><option value="5">5 min</option><option value="10">10 min</option><option value="15">15 min</option></select>
+          <button class="btn" id="snapNow">Relever maintenant</button>
+          <label style="margin-left:auto" title="De 21 h 30 à 6 h 30, les relevés ralentissent quand peu de vélos bougent, puis reprennent dès que l'activité revient. Toujours à plein rythme de 6 h 30 à 21 h 30."><span class="switch" style="width:38px;height:21px"><input type="checkbox" id="adaptToggle" aria-label="Ralentir quand c'est calme"><span></span></span>Ralentir quand c'est calme</label>
+        </div>
+        <div class="notice" id="oldCol" hidden>L'ancienne fenêtre de collecte tourne aussi : les relevés sont enregistrés deux fois. Vous pouvez fermer la fenêtre noire « Velo'v collector ».</div>
+        <div class="notice err" id="colErr" hidden></div>
+      </section>
+
+      <section class="card">
+        <div class="hd"><h2>Numéros de vélos</h2><span class="tag warn" title="Utilise l'API privée de JCDecaux qu'emploie le site Vélo'v">API non officielle</span></div>
+        <div class="bikeid"><span class="plate">2xxxx</span><span class="small">mécanique</span><span class="plate e">5xxxx</span><span class="small">électrique</span></div>
+        <div class="facts">
+          <div class="fact"><div class="k">Relevés · déplacements vus</div><div class="v" id="kFetches">–</div></div>
+          <div class="fact"><div class="k">Dernier relevé</div><div class="v" id="kLast">–</div></div>
+        </div>
+        <div class="controls">
+          <button class="btn primary" id="fetchBikes">Relever les vélos</button>
+          <label for="repeat">Répéter</label>
+          <select id="repeat"><option value="0">Non</option><option value="10">Toutes les 10 min</option><option value="15">Toutes les 15 min</option><option value="30">Toutes les 30 min</option><option value="60">Toutes les heures</option></select>
+        </div>
+        <p class="small" id="repeatNote" style="margin:10px 0 0">Deux requêtes par relevé.</p>
+      </section>
+
+      <section class="card">
+        <div class="hd"><h2>Console</h2><span class="sub" id="consoleSub">Sortie des commandes lancées</span>
+          <div class="right"><button class="btn" id="runReport">Rapport des stations</button></div></div>
+        <div class="jobs" id="jobChips"></div>
+        <div class="console" id="console"><span class="muted">Rien de lancé pour l'instant. Utilisez « Relever les vélos » ou « Rapport des stations ».</span></div>
+      </section>
+    </div>
+
+    <div class="col">
+      <section class="card">
+        <div class="hd"><h2>Fichiers</h2><span class="sub">Tableurs à ouvrir dans Excel (séparateur point-virgule)</span></div>
+        <div class="tablewrap files" id="fileList"></div>
+      </section>
+      <section class="card">
+        <div class="hd"><h2>Démarrer avec Windows</h2>
+          <div class="right"><label class="switch"><input type="checkbox" id="autoToggle" aria-label="Démarrer avec Windows"><span></span></label></div></div>
+        <p class="small" style="margin:0">Lance Vélo'v Control en silence à l'ouverture de session, pour que la collecte reprenne après un redémarrage.</p>
+      </section>
+      <section class="card">
+        <div class="hd"><h2>Système</h2></div>
+        <div class="facts">
+          <div class="fact"><div class="k">Base de données</div><div class="v" id="sDb">–</div></div>
+          <div class="fact"><div class="k">Adresse</div><div class="v" id="sAddr">–</div></div>
+        </div>
+        <div class="controls"><button class="btn" id="restartApp">Redémarrer</button><span id="stopRow"><button class="btn danger" id="stopApp">Arrêter Vélo'v Control</button></span></div>
+      </section>
+      <section class="card">
+        <div class="hd"><h2>Journal de collecte</h2></div>
+        <div class="console" id="logBox" style="height:200px"></div>
+      </section>
+    </div>
+  </div>
+</main>
+
+<!-- À PROPOS -->
+<main class="view" id="about" hidden>
+  <section class="ab-hero">
+    <h1>Comment fonctionne Vélo'v Control</h1>
+    <p id="abLead">Chargement…</p>
+  </section>
+
+  <section class="card">
+    <div class="hd"><h2>Quand il relève</h2><span class="sub">Heure de Paris · le programme, puis ce qui s'est vraiment passé ces dernières 24 h</span></div>
+    <div class="ab-sched"><svg id="abSched" role="img" aria-label="Programme de collecte sur une journée"></svg></div>
+    <div class="legend ab-legend">
+      <span><i style="background:var(--accent)"></i>Plein rythme, toujours</span>
+      <span><i class="hatch"></i>Peut ralentir si peu de vélos bougent</span>
+      <span><i style="background:var(--ink)"></i>Relevés réellement faits</span>
+    </div>
+  </section>
+
+  <div class="grid ab-grid">
+    <section class="card">
+      <div class="hd"><h2>Les règles de rythme</h2><span class="tag" id="abAdapt">–</span></div>
+      <div class="tablewrap"><table class="ab-t" id="abRules"></table></div>
+      <p class="small ab-p">Chaque relevé décide du suivant : la collecte réaccélère d'un cran dès que les cyclistes reviennent. À <b id="abDay1">06:30</b>, retour au plein rythme quelle qu'ait été la nuit, pour capter la pointe du matin dès ses premières minutes. Un trou de plus de 90 minutes entre deux relevés de vélos (PC éteint, Pi qui redémarre) remet les positions à zéro au lieu de compter de faux trajets.</p>
+    </section>
+    <section class="card">
+      <div class="hd"><h2>Comment les trajets sont comptés</h2></div>
+      <ol class="ab-ol">
+        <li><b>Un vélo change de station</b> entre deux relevés : un trajet, de l'ancienne station à la nouvelle, quelque part entre les deux.</li>
+        <li><b>Un vélo disparaît puis revient</b> à la même station : un aller-retour.</li>
+        <li><b>Quatre vélos ou plus</b> entre les deux mêmes stations dans le même intervalle : un camion de rééquilibrage, compté à part.</li>
+        <li><b>Les trajets courts peuvent manquer</b>, et un vélo peut en faire plusieurs entre deux relevés : les chiffres sont un minimum, pas un total exact.</li>
+      </ol>
+    </section>
+    <section class="card" style="grid-column:1/-1">
+      <div class="hd"><h2>D'où viennent les données</h2></div>
+      <div class="tablewrap"><table class="ab-t">
+        <thead><tr><th>Source</th><th>Quoi</th><th>Quand</th><th>Conditions</th></tr></thead>
+        <tbody>
+          <tr><td><a href="https://data.grandlyon.com/portail/fr/jeux-de-donnees/stations-velo-v-metropole-lyon-disponibilites-temps-reel" target="_blank" rel="noopener">Open data de la Métropole de Lyon</a></td><td>Vélos, vélos électriques et places libres de chaque station</td><td>À chaque relevé des stations, 1 requête</td><td>Licence Ouverte 2.0</td></tr>
+          <tr><td>API JCDecaux Cyclocity <span class="tag warn">non officielle</span></td><td>Numéros de vélos, bornes, batterie, notes</td><td>À chaque relevé des vélos (2 requêtes) ; en ouvrant une station (au plus une fois par minute)</td><td>API privée du site Vélo'v, usage personnel ; peut cesser de fonctionner</td></tr>
+          <tr><td>Open data de la Métropole de Lyon</td><td>Limites des communes et arrondissements</td><td>Téléchargées une fois, gardées sur le Pi</td><td>Licence Ouverte 2.0</td></tr>
+          <tr><td><a href="https://open-meteo.com" target="_blank" rel="noopener">Open-Meteo</a></td><td>Pluie et température heure par heure</td><td>Au plus une fois par heure</td><td>CC BY 4.0</td></tr>
+          <tr><td><a href="https://routing.openstreetmap.de" target="_blank" rel="noopener">Calcul d'itinéraires OSM (FOSSGIS)</a></td><td>Itinéraires vélo par les rues</td><td>Une fois par paire de stations, au plus une par seconde, gardés</td><td>Usage raisonnable</td></tr>
+          <tr><td><a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a></td><td>Fond de carte</td><td>Quand une carte est affichée</td><td>© contributeurs, ODbL</td></tr>
+        </tbody></table></div>
+      <p class="small ab-p" id="abLoad"></p>
+    </section>
+    <section class="card">
+      <div class="hd"><h2>Notes des vélos</h2></div>
+      <p class="small ab-p" style="margin-top:0">Après un trajet, les cyclistes votent : « recommandé » vaut 100, les deux sortes de « non recommandé » 60 ou 30 (freins, pneu crevé et coupures du moteur sont des 30). La note d'un vélo est la moyenne depuis son dernier passage à l'atelier, affichée en étoiles : <b>80 et plus ★★★</b>, <b>45 à 79 ★★</b>, <b>moins de 45 ★</b>. Révisé et sans vote depuis : <b>✓ Révisé</b>.</p>
+      <div id="abStars"></div>
+    </section>
+    <section class="card">
+      <div class="hd"><h2>Ce qui est gardé</h2><span class="sub" id="abWhere"></span></div>
+      <div class="ab-store" id="abStore"></div>
+    </section>
+  </div>
+
+  <footer class="ab-foot" id="abFoot"></footer>
+</main>
+
+<div id="toast" role="status" aria-live="polite"></div>
+
+<script>
+const $ = id => document.getElementById(id);
+const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+const tFmt = (iso, opts) => iso ? new Date(iso).toLocaleTimeString('fr-FR', opts||{hour:'2-digit',minute:'2-digit'}) : '–';
+const dFmt = iso => iso ? new Date(iso).toLocaleString('fr-FR',{weekday:'short',day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'}) : '–';
+const ago = iso => { if(!iso) return '–'; const s=(Date.now()-new Date(iso))/1000;
+  if(s<60) return 'à l\'instant'; if(s<3600) return 'il y a '+Math.round(s/60)+' min';
+  if(s<86400) return 'il y a '+Math.round(s/3600)+' h'; return 'il y a '+Math.round(s/86400)+' j'; };
+const esc = s => String(s ?? '').replace(/[&<>"]/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const num = n => n==null ? '–' : Number(n).toLocaleString('fr-FR');
+
+async function api(path, body){
+  const r = await fetch(path, body===undefined ? {} : {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)});
+  const j = await r.json().catch(()=>({}));
+  if(!r.ok) throw new Error(j.error || r.statusText);
+  return j;
+}
+let toastT;
+function toast(msg){ const t=$('toast'); t.textContent=msg; t.classList.add('show'); clearTimeout(toastT); toastT=setTimeout(()=>t.classList.remove('show'),2600); }
+
+/* tabs */
+let view='dash';
+document.querySelectorAll('.tab,.bb[data-view]').forEach(b=>b.onclick=()=>show(b.dataset.view));
+document.querySelectorAll('.sh').forEach(b=>b.onclick=()=>{ closeSheet(); show(b.dataset.view); });
+document.querySelectorAll('[data-go]').forEach(b=>b.onclick=()=>show(b.dataset.go));
+$('livePill').onclick = () => show('files');
+function closeSheet(){ $('moreSheet').hidden=true; $('moreBtn').setAttribute('aria-expanded','false'); }
+$('moreBtn').onclick = () => { const o=$('moreSheet').hidden; $('moreSheet').hidden=!o; $('moreBtn').setAttribute('aria-expanded',String(o)); };
+$('moreSheet').onclick = e => { if(e.target===$('moreSheet')) closeSheet(); };
+addEventListener('keydown', e => { if(e.key==='Escape' && !$('moreSheet').hidden) closeSheet(); });
+const MAIN4=['map','heat','bikes','near'];
+function show(v){
+  view=v;
+  document.querySelectorAll('.tab').forEach(b=>b.setAttribute('aria-selected', b.dataset.view===v));
+  document.querySelectorAll('.bb[data-view],.sh').forEach(b=>{ if(b.dataset.view===v) b.setAttribute('aria-current','page'); else b.removeAttribute('aria-current'); });
+  if(MAIN4.includes(v)) $('moreBtn').removeAttribute('aria-current'); else $('moreBtn').setAttribute('aria-current','page');
+  $('dash').hidden=v!=='dash'; $('mapview').hidden=v!=='map'; $('heatview').hidden=v!=='heat'; $('replayview').hidden=v!=='replay'; $('bikesview').hidden=v!=='bikes'; $('nearview').hidden=v!=='near'; $('trips').hidden=v!=='trips'; $('files').hidden=v!=='files'; $('about').hidden=v!=='about';
+  if(v==='map' && !$('mapframe').src) $('mapframe').src='/map';
+  if(v==='heat' && !$('heatframe').src) $('heatframe').src='/heat';
+  if(v==='replay' && !$('replayframe').src) $('replayframe').src='/replay';
+  if(v==='bikes' && !$('bikesframe').src) $('bikesframe').src='/bikes';
+  if(v==='near' && !$('nearframe').src) $('nearframe').src='/near';
+  if(v==='dash') loadToday();
+  if(v==='trips') loadTrips();
+  if(v==='files') { loadFiles(); loadLog(); }
+  if(v==='about') loadAbout();
+  try{ localStorage.setItem('velovTab', v); }catch(e){}
+}
+
+/* status */
+let status=null, offline=false;
+async function refresh(){
+  try{
+    status = await api('/api/status');
+    offline=false; renderStatus();
+  }catch(e){
+    offline=true;
+    $('liveDot').className='dot'; $('livePill').className='live down'; $('liveText').textContent='Application injoignable';
+  }
+}
+function renderStatus(){
+  const s=status, c=s.collector, L=s.latest||{};
+  const on=s.settings.collector_on;
+  $('liveDot').className='dot '+(c.busy?'busy':on?'on':'');
+  $('liveText').textContent = c.busy ? 'Relevé en cours…' : on ? 'En direct' : 'Collecte en pause';
+  $('livePill').className = 'live ' + (c.busy ? 'busy' : on ? 'on' : 'paused');
+  $('bBikes').textContent=num(L.bikes); $('bElec').textContent=num(L.electrical); $('bMech').textContent=num(L.mechanical);
+  $('bEmpty').textContent=num(L.empty); $('bFull').textContent=num(L.full);
+  $('bAsOf').textContent = L.t ? 'relevé de '+tFmt(L.t) : 'en attente de données';
+  $('bElecPct').textContent = L.bikes ? Math.round(100*L.electrical/L.bikes)+' % des vélos' : '';
+  $('bStations').textContent = L.stations ? 'sur '+L.stations+' stations' : '';
+  $('colToggle').checked=on;
+  const PACE={quiet:'nuit calme',calm:'calme',busy:'animé',day:'rythme de jour',night:'nuit',fixed:'fixe'};
+  const ci = c.interval_s ? Math.round(c.interval_s/60) : s.settings.interval_min;
+  $('colTag').textContent = on ? 'toutes les '+ci+' min'+(c.pace && s.settings.adaptive ? ' · '+PACE[c.pace] : '') : 'en pause';
+  if(document.activeElement!==$('adaptToggle')) $('adaptToggle').checked = s.settings.adaptive!==false;
+  $('colTag').className = 'tag '+(on?'ok':'');
+  if(document.activeElement!==$('interval')) $('interval').value=String(s.settings.interval_min);
+  if(document.activeElement!==$('repeat')) $('repeat').value=String(s.settings.bikes_every_min||0);
+  $('fSnaps').textContent=num(s.snapshots); $('fSince').textContent=dFmt(s.first_snapshot);
+  $('fLast').textContent = c.last_ok ? tFmt(c.last_ok)+' · '+ago(c.last_ok) : (L.t ? tFmt(L.t) : '–');
+  $('fCount').textContent = c.last_count ?? (L.stations ?? '–');
+  $('oldCol').hidden = !s.old_collector;
+  $('colErr').hidden = !c.last_error; if(c.last_error) $('colErr').textContent='Le dernier essai a échoué : '+c.last_error;
+  $('kFetches').textContent=num(Math.max(s.metro_fetches||0, s.bike_fetches||0)) + (s.moves?` · ${num(s.moves)} déplacements`:''); $('kLast').textContent = s.last_bike_fetch ? tFmt(s.last_bike_fetch)+' · '+ago(s.last_bike_fetch) : 'jamais';
+  $('repeatNote').textContent = s.bikes_next_at ? 'Prochain relevé automatique à '+tFmt(s.bikes_next_at)+(s.bikes_interval_min && s.bikes_interval_min!==s.settings.bikes_every_min ? ` (ralenti à toutes les ${s.bikes_interval_min} min : ${PACE[s.bikes_pace]||s.bikes_pace})` : '')+'. Deux requêtes par relevé.' : 'Deux requêtes par relevé. Deux relevés espacés montrent quels vélos ont bougé, dans Trajets.';
+  $('autoToggle').checked=!!s.autostart;
+  if(s.host==='docker'){ const card=$('autoToggle').closest('.card'); card.querySelector('h2').textContent='Toujours actif'; card.querySelector('.right').style.display='none';
+    card.querySelector('p').textContent='Tourne dans Docker sur le Raspberry Pi et redémarre tout seul après une coupure ou un plantage.'; }
+  $('sDb').textContent = (s.db_bytes/1048576).toFixed(1).replace('.',',')+' Mo'; $('sAddr').textContent=location.host;
+  tick();
+}
+function tick(){
+  $('clock').textContent = new Date().toLocaleTimeString('fr-FR');
+  if(!status) return;
+  const c=status.collector, on=status.settings.collector_on, per=c.interval_s||status.settings.interval_min*60;
+  if(!on || !c.next_at){ $('countdown').textContent = on?'…':'arrêt'; $('ringArc').style.strokeDashoffset=326.7; return; }
+  const left=Math.max(0,(new Date(c.next_at)-Date.now())/1000);
+  $('countdown').textContent = c.busy ? '…' : Math.floor(left/60)+':'+String(Math.floor(left%60)).padStart(2,'0');
+  $('ringArc').style.strokeDashoffset = 326.7*(left/per);
+}
+setInterval(tick,1000);
+
+/* collector controls */
+$('colToggle').onchange = async e => { await api('/api/collector',{on:e.target.checked}); toast(e.target.checked?'Collecte en marche':'Collecte en pause'); refresh(); };
+$('adaptToggle').onchange = async e => { await api('/api/collector',{adaptive:e.target.checked}); toast(e.target.checked?'Ralentit la nuit quand c\'est calme':'Plein rythme toute la nuit'); refresh(); };
+$('interval').onchange = async e => { await api('/api/collector',{interval_min:+e.target.value}); toast('Relevé toutes les '+e.target.value+' min'); refresh(); };
+$('snapNow').onclick = async () => { await api('/api/collector',{now:true}); toast('Relevé en cours'); setTimeout(refresh,1500); setTimeout(()=>{refresh();loadSeries();},5000); };
+$('repeat').onchange = async e => { await api('/api/bikes_schedule',{every_min:+e.target.value}); toast(+e.target.value?'Numéros de vélos toutes les '+e.target.value+' min':'Relevé automatique arrêté'); refresh(); };
+$('autoToggle').onchange = async e => {
+  try{ await api('/api/autostart',{on:e.target.checked}); toast(e.target.checked?'Démarre avec Windows':'Ne démarre plus avec Windows'); }
+  catch(err){ toast(err.message); e.target.checked=!e.target.checked; }
+};
+function askStop(){
+  $('stopRow').innerHTML = '<div class="confirm">Arrêter l\'application et la collecte ? <button class="btn danger" id="stopYes">Arrêter</button><button class="btn" id="stopNo">Annuler</button></div>';
+  $('stopNo').onclick = () => { $('stopRow').innerHTML='<button class="btn danger" id="stopApp">Arrêter Vélo\'v Control</button>'; $('stopApp').onclick=askStop; };
+  $('stopYes').onclick = async () => { await api('/api/shutdown',{}).catch(()=>{}); document.body.innerHTML='<main style="padding:60px 20px;text-align:center"><h1 style="font:600 32px var(--display)">Vélo\'v Control est arrêté</h1><p class="small">Double-cliquez sur velov_app.pyw pour le relancer.</p></main>'; };
+}
+$('stopApp').onclick = askStop;
+$('restartApp').onclick = async () => {
+  $('restartApp').disabled=true; $('restartApp').innerHTML='<span class="spin"></span>Redémarrage…';
+  await api('/api/restart',{}).catch(()=>{});
+  for(let i=0;i<40;i++){ await new Promise(r=>setTimeout(r,500)); try{ const s=await api('/api/status'); if(s.app){ location.reload(); return; } }catch(e){} }
+  $('restartApp').disabled=false; $('restartApp').textContent='Redémarrer'; toast('L\'application n\'est pas revenue. Double-cliquez sur velov_app.pyw.');
+};
+
+/* jobs & console */
+let jobs=[], selectedJob=null, jobPoll=null;
+async function runJob(kind){
+  try{
+    const {id} = await api('/api/run',{job:kind});
+    selectedJob=id; if(view!=='files') show('files');
+    await loadJobs(); pollJobs();
+  }catch(e){ toast(e.message); }
+}
+$('fetchBikes').onclick=()=>runJob('bikes'); $('runReport').onclick=()=>runJob('report');
+
+async function loadJobs(){
+  jobs = await api('/api/jobs');
+  if(!selectedJob && jobs[0]) selectedJob=jobs[0].id;
+  $('jobChips').innerHTML = jobs.slice(0,8).map(j=>`<button class="jobchip" aria-pressed="${j.id===selectedJob}" data-id="${j.id}"><i class="${j.status}"></i>${esc(j.label)} · ${tFmt(j.started)}</button>`).join('');
+  $('jobChips').querySelectorAll('.jobchip').forEach(b=>b.onclick=()=>{selectedJob=b.dataset.id; loadJobs();});
+  const j = jobs.find(x=>x.id===selectedJob);
+  if(j){
+    const box=$('console'), atBottom = box.scrollTop+box.clientHeight >= box.scrollHeight-20;
+    const head = `<span class="muted">$ ${esc(j.label)} — lancé à ${tFmt(j.started,{hour:'2-digit',minute:'2-digit',second:'2-digit'})}</span>\n`;
+    const body = j.lines.map(l=>{
+      const e=esc(l);
+      if(/^Failed|Error|refused|Could not/i.test(l)) return `<span class="er">${e}</span>`;
+      if(/bikes parked|Saved|booked|stations saved/i.test(l)) return `<span class="hl">${e}</span>`;
+      return e; }).join('\n');
+    const tail = j.status==='running' ? '\n<span class="muted">…</span>' : `\n<span class="${j.status==='done'?'hl':'er'}">${j.status==='done'?'✓ Terminé':'✗ Échec'} à ${tFmt(j.ended,{hour:'2-digit',minute:'2-digit',second:'2-digit'})}</span>`;
+    box.innerHTML = head+body+tail;
+    if(atBottom) box.scrollTop=box.scrollHeight;
+  }
+  const running = jobs.some(x=>x.status==='running');
+  const bRun = jobs.some(x=>x.kind==='bikes'&&x.status==='running');
+  for(const b of [$('fetchBikes')]){ b.disabled=bRun; b.innerHTML = bRun?'<span class="spin"></span>Relevé…':'Relever les vélos'; }
+  const rRun = jobs.some(x=>x.kind==='report'&&x.status==='running');
+  $('runReport').disabled=rRun; $('runReport').innerHTML = rRun?'<span class="spin"></span>En cours…':'Rapport des stations';
+  return running;
+}
+function pollJobs(){
+  clearInterval(jobPoll);
+  jobPoll=setInterval(async()=>{
+    const running = await loadJobs().catch(()=>false);
+    if(!running){ clearInterval(jobPoll); refresh(); if(view==='trips') loadTrips(); if(view==='dash') loadToday(); }
+  },800);
+}
+
+/* chart */
+let series=[];
+async function loadSeries(){ try{ series = await api('/api/series?hours=24'); drawChart(); }catch(e){} }
+function drawChart(){
+  const svg=$('chart'), W=svg.clientWidth||600, H=190, P={l:40,r:12,t:12,b:24};
+  svg.setAttribute('viewBox',`0 0 ${W} ${H}`);
+  if(series.length<2){ svg.innerHTML=`<text x="${W/2}" y="${H/2}" text-anchor="middle" fill="${css('--muted')}" font-size="13">La courbe se remplit au fil des relevés (${series.length} pour l'instant).</text>`; return; }
+  const t0=+new Date(series[0].t), t1=+new Date(series[series.length-1].t);
+  const max=Math.max(...series.map(d=>d.bikes))*1.08, min=0;
+  const x=t=>P.l+(+new Date(t)-t0)/(t1-t0||1)*(W-P.l-P.r);
+  const y=v=>P.t+(1-(v-min)/(max-min||1))*(H-P.t-P.b);
+  const line=k=>series.map((d,i)=>`${i?'L':'M'}${x(d.t).toFixed(1)},${y(d[k]).toFixed(1)}`).join('');
+  const area=line('bikes')+`L${x(series.at(-1).t)},${y(0)}L${x(series[0].t)},${y(0)}Z`;
+  const raw=max/4, mag=10**Math.floor(Math.log10(raw)), stepY=[1,2,2.5,5,10].map(m=>m*mag).find(s=>s>=raw); const ticks=[]; for(let v=0;v<=max;v+=stepY) ticks.push(Math.round(v));
+  const span=(t1-t0)/36e5, step=span>12?4:span>4?1:span>1?.25:5/60;
+  let xt=[]; const first=Math.ceil(t0/(step*36e5))*step*36e5;
+  for(let t=first;t<=t1;t+=step*36e5) xt.push(t);
+  const last=series.at(-1);
+  svg.innerHTML=`
+    ${ticks.map(v=>`<line x1="${P.l}" x2="${W-P.r}" y1="${y(v)}" y2="${y(v)}" stroke="${css('--line')}"/>
+      <text x="${P.l-6}" y="${y(v)+4}" text-anchor="end" font-size="12" fill="${css('--muted')}" font-family="IBM Plex Mono,monospace">${v}</text>`).join('')}
+    ${xt.map(t=>`<text x="${x(t)}" y="${H-6}" text-anchor="middle" font-size="12" fill="${css('--muted')}" font-family="IBM Plex Mono,monospace">${tFmt(new Date(t).toISOString())}</text>`).join('')}
+    <path d="${area}" fill="${css('--accent')}" opacity=".10"/>
+    <path d="${line('bikes')}" fill="none" stroke="${css('--accent')}" stroke-width="2.2" stroke-linejoin="round"/>
+    <path d="${line('electrical')}" fill="none" stroke="${css('--elec')}" stroke-width="1.8" stroke-linejoin="round"/>
+    <circle cx="${x(last.t)}" cy="${y(last.bikes)}" r="4" fill="${css('--accent')}"/>
+    <circle cx="${x(last.t)}" cy="${y(last.electrical)}" r="3.5" fill="${css('--elec')}"/>
+    <line id="hoverLine" y1="${P.t}" y2="${H-P.b}" stroke="${css('--muted')}" stroke-dasharray="3 3" visibility="hidden"/>`;
+  svg.onmousemove=e=>{
+    const r=svg.getBoundingClientRect(), mx=(e.clientX-r.left)*(W/r.width);
+    let best=series[0]; for(const d of series) if(Math.abs(x(d.t)-mx)<Math.abs(x(best.t)-mx)) best=d;
+    const hl=svg.querySelector('#hoverLine'); hl.setAttribute('x1',x(best.t)); hl.setAttribute('x2',x(best.t)); hl.setAttribute('visibility','visible');
+    const tip=$('tip'); tip.hidden=false; tip.style.left=(x(best.t)*r.width/W)+'px'; tip.style.top=(y(best.bikes)*r.height/H)+'px';
+    tip.textContent=`${tFmt(best.t)} · ${best.bikes} vélos · ${best.electrical} élec. · ${best.empty} vides`;
+  };
+  svg.onmouseleave=()=>{ $('tip').hidden=true; const hl=svg.querySelector('#hoverLine'); if(hl) hl.setAttribute('visibility','hidden'); };
+}
+addEventListener('resize',()=>{ drawChart(); if(typeof today!=='undefined' && today) drawToday(); });
+
+/* trips: whole Métropole, last 7 days */
+async function loadTrips(){
+  let d; try{ d=await api('/api/x/triplist'); }catch(e){ return; }
+  if(!d.last){
+    $('routes').innerHTML=`<div class="empty"><b>Pas encore de trajets</b>Les trajets apparaissent après deux relevés des numéros de vélos.</div>`;
+    $('tripTable').innerHTML=''; $('tripsCount').textContent=''; $('tripsSub').textContent=''; return;
+  }
+  $('tripsSub').textContent = `7 derniers jours de données · ${num(d.total)} trajets`;
+  const max=d.top[0]?.[2]||1;
+  $('routes').innerHTML='<div class="routes">'+d.top.map(([a,z,n])=>`<div class="route"><span class="st" title="${esc(a)}">${esc(a)}</span><span class="arrow">→</span><span class="st" title="${esc(z)}">${esc(z)}</span><span class="n">${n}</span><div class="bar" style="width:${Math.max(4,100*n/max)}%"></div></div>`).join('')+'</div>';
+  $('tripsCount').textContent=`les ${d.recent.length} plus récents · dernier relevé ${dFmt(d.last)}`;
+  $('tripTable').innerHTML='<div class="tablewrap"><table><thead><tr><th>Vélo</th><th>De</th><th>À</th><th>Entre</th></tr></thead><tbody>'+
+    d.recent.map(([bk,e,a,z,ta,tb])=>`<tr><td><span class="plate ${e?'e':''}" style="font-size:12px;padding:3px 6px">${bk}</span></td><td>${esc(a)}</td><td>${esc(z)}</td><td style="white-space:nowrap">${tFmt(ta)}–${tFmt(tb)}</td></tr>`).join('')+'</tbody></table></div>';
+}
+const short = s => String(s).replace(/^\d+\s*-\s*/,'');
+
+/* aujourd'hui */
+let today=null;
+async function loadToday(){ try{ today=await api('/api/x/today'); drawToday(); }catch(e){} }
+const dayLabel = d => new Date(d+'T12:00').toLocaleDateString('fr-FR',{weekday:'long',day:'numeric',month:'long'});
+function drawToday(){
+  const d=today; if(!d) return;
+  $('tdTitle').textContent = d.stale ? 'Dernière journée relevée' : 'Aujourd’hui à Lyon';
+  $('tdSub').innerHTML = d.stale ? `<span class="stale">pas encore de trajets aujourd’hui · ${esc(dayLabel(d.day))}</span>` : esc(dayLabel(d.day));
+  $('tdTripsTitle').textContent = d.stale ? 'Trajets de la journée' : 'Trajets aujourd’hui';
+  $('tdTripsSub').textContent = d.typical ? (d.typical_days>1 ? `journée type : moyenne des ${d.typical_days} jours précédents` : 'journée type : la veille') : '';
+  const pct = d.trips ? Math.round(100*d.elec/d.trips) : 0;
+  $('tdStats').innerHTML = `<div class="fact"><div class="v">${num(d.trips)}</div><div class="k">trajets${d.stale?'':' jusqu’ici'}</div></div>
+    <div class="fact"><div class="v">${pct} %</div><div class="k">en électrique</div></div>
+    <div class="fact"><div class="v">${num(d.truck_runs)}</div><div class="k">passages de camions</div></div>`;
+  // hours: today as bars, a typical day as a dashed line
+  const svg=$('tdHours'), W=svg.clientWidth||560, H=170, P={l:44,r:8,t:10,b:22};
+  svg.setAttribute('viewBox',`0 0 ${W} ${H}`);
+  const mx=Math.max(1,...d.hours,...(d.typical||[0]));
+  const raw=mx/3, mag=10**Math.floor(Math.log10(raw||1)), step=[1,2,2.5,5,10].map(m=>m*mag).find(v=>v>=raw)||1;
+  const x=h=>P.l+(W-P.l-P.r)*h/24, y=v=>P.t+(H-P.t-P.b)*(1-v/(step*Math.ceil(mx/step))), bw=(W-P.l-P.r)/24;
+  let o='';
+  for(let v=0; v<=step*Math.ceil(mx/step); v+=step) o+=`<line x1="${P.l}" x2="${W-P.r}" y1="${y(v)}" y2="${y(v)}" stroke="${css('--line')}"/><text x="${P.l-6}" y="${y(v)+4}" text-anchor="end" font-size="12" fill="${css('--muted')}">${num(v)}</text>`;
+  const nowH = d.stale ? 24 : new Date().getHours();
+  d.hours.forEach((v,h)=>{ if(!v && h>nowH) return; o+=`<rect x="${x(h)+bw*.14}" y="${y(v)}" width="${bw*.72}" height="${y(0)-y(v)}" rx="2" fill="${css('--accent')}" opacity="${h===nowH?1:.78}"><title>${h} h : ${num(v)} trajets${d.typical?` (journée type ${num(Math.round(d.typical[h]))})`:''}</title></rect>`; });
+  if(d.typical) o+=`<path d="${d.typical.map((v,h)=>`${h?'L':'M'}${(x(h)+bw/2).toFixed(1)} ${y(v).toFixed(1)}`).join(' ')}" fill="none" stroke="${css('--muted')}" stroke-width="1.6" stroke-dasharray="4 3"/>`;
+  [0,6,12,18,23].forEach(h=>o+=`<text x="${x(h)+bw/2}" y="${H-5}" text-anchor="middle" font-size="12" fill="${css('--muted')}">${h} h</text>`);
+  svg.innerHTML=o;
+  // busiest stations
+  const bmax=Math.max(1,...d.busiest.map(b=>b[2]+b[3]));
+  $('tdBusy').innerHTML = d.busiest.length ? '<div class="busy">'+d.busiest.map(([n,nm,dep,arr],i)=>`<div class="row"><span class="rk">${i+1}</span><span class="nm" title="${esc(nm)}">${esc(nm)}</span><span class="nn"><b>${num(dep)}</b> · <b>${num(arr)}</b></span><div class="bar"><i style="width:${100*(dep+arr)/bmax}%"></i></div></div>`).join('')+'</div>'
+    : '<p class="small" style="margin:0">Pas encore de trajets ce jour-là.</p>';
+  // weather
+  const w=d.weather, hNow = d.stale ? 12 : new Date().getHours(), cur=w[hNow];
+  if(!d.weather_ready || !cur){ $('tdWx').innerHTML='<p class="small" style="margin:0">Météo pas encore disponible (récupérée une fois par heure depuis Open-Meteo).</p>'; return; }
+  const ico = (mm,h) => mm>=1?'🌧':mm>=.2?'🌦':(h<7||h>=18)?'🌙':'☀';
+  const next = Array.from({length:12},(_,i)=>hNow+i).filter(h=>h<24);
+  const rmax = Math.max(1,...next.map(h=>w[h]?.[0]||0));
+  $('tdWx').innerHTML = `<div class="wxnow"><span class="big">${cur[1]} °C</span><span style="font-size:28px">${ico(cur[0],hNow)}</span><span class="small">${cur[0]>=.2?`pluie ${String(cur[0]).replace('.',',')} mm/h`:'sec'}${d.stale?'':' en ce moment'}</span></div>
+    <div class="wxstrip">${next.map(h=>{ const v=w[h]; return `<div class="wxh ${h===hNow?'now':''}"><span>${h} h</span><span class="rb" title="${v?`${String(v[0]).replace('.',',')} mm/h · ${v[1]} °C`:''}"><i style="height:${v?Math.max(v[0]>0?8:0,100*v[0]/rmax):0}%"></i></span><span>${v?v[1]+'°':'–'}</span></div>`; }).join('')}</div>`;
+}
+
+/* files & log */
+async function loadFiles(){
+  const f=await api('/api/files').catch(()=>[]);
+  $('fileList').innerHTML = f.length ? '<table><thead><tr><th>Fichier</th><th>Taille</th><th>Modifié</th></tr></thead><tbody>'+
+    f.map(x=>`<tr><td><a href="/files/${encodeURIComponent(x.name)}" download>${esc(x.name)}</a></td><td>${num(Math.round(x.bytes/1024))} Ko</td><td>${dFmt(x.modified)}</td></tr>`).join('')+'</tbody></table>'
+    : '<div class="empty"><b>Pas encore de fichier</b>Les tableurs de « Relever les vélos » apparaissent ici.</div>';
+}
+async function loadLog(){
+  const l=await api('/api/log').catch(()=>[]);
+  const box=$('logBox'); box.innerHTML = l.map(x=>{const e=esc(x); return /failed/i.test(x)?`<span class="er">${e}</span>`:e;}).join('\n') || '<span class="muted">Vide</span>';
+  box.scrollTop=box.scrollHeight;
+}
+
+/* ---------- About ---------- */
+const hm = h => { const H=Math.floor(h), M=Math.round((h-H)*60); return String(H).padStart(2,'0')+':'+String(M).padStart(2,'0'); };
+const paceName = {day:'rythme de jour', busy:'nuit animée', calm:'nuit calme', quiet:'nuit très calme', night:'nuit', fixed:'rythme fixe'};
+async function loadAbout(){
+  let st, ab;
+  try{ [st, ab] = await Promise.all([api('/api/status'), api('/api/x/about')]); }
+  catch(e){ $('abLead').textContent = 'Impossible de charger les chiffres en direct : '+e.message; return; }
+  const P = st.pacing || {day_start:6.5, day_end:21.5, station_quiet:12, station_calm:40, bikes_quiet:40, bikes_calm:120, station_quiet_min:15, station_calm_min:10, bikes_quiet_min:60, bikes_calm_min:30};
+  const S = st.settings, base = S.interval_min, bb = S.bikes_every_min||0, adapt = S.adaptive!==false;
+  const where = st.host==='docker' ? 'sur le Raspberry Pi ('+location.host+')' : 'sur ce PC';
+  $('abLead').innerHTML = `Tourne ${esc(where)}, collecte depuis le <b>${dFmt(ab.first_snapshot)}</b>. Les stations de toute la Métropole sont relevées toutes les ${base} minutes en journée, les numéros de vélos toutes les ${bb||'–'} minutes, avec un ralentissement les nuits calmes. En ce moment : <b>${paceName[st.collector.pace]||'–'}</b>, prochain relevé à ${tFmt(st.collector.next_at)}.`;
+  $('abDay1').textContent = hm(P.day_start);
+  $('abAdapt').textContent = adapt ? 'Ralentir quand c’est calme : oui' : 'Ralentir quand c’est calme : non';
+  $('abAdapt').className = 'tag '+(adapt?'ok':'');
+
+  /* rules table */
+  const rows = [
+    ['day', 'Jour', `${hm(P.day_start)}–${hm(P.day_end)}, toujours`, base, bb],
+    ['busy', 'Nuit animée', 'sinon', base, bb],
+    ['calm', 'Nuit calme', `moins de ${P.station_calm} vélos bougés en 5 min · moins de ${P.bikes_calm} déplacements en 15 min`, Math.max(base,P.station_calm_min), Math.max(bb,P.bikes_calm_min)],
+    ['quiet', 'Nuit très calme', `moins de ${P.station_quiet} vélos bougés en 5 min · moins de ${P.bikes_quiet} déplacements en 15 min`, Math.max(base,P.station_quiet_min), Math.max(bb,P.bikes_quiet_min)],
+  ];
+  const curS = st.collector.pace, curB = st.bikes_pace;
+  $('abRules').innerHTML = '<thead><tr><th>Rythme</th><th>Quand</th><th>Stations</th><th>Numéros de vélos</th></tr></thead><tbody>'+
+    rows.map(([k,n,w,a,b])=>`<tr class="${(curS===k||(k==='busy'&&curS==='night'))?'now':''}"><td>${n}${curS===k?' <span class="tag ok">maintenant</span>':''}</td><td class="small">${w}</td><td class="num">${adapt||k==='day'||k==='busy'?a:base} min</td><td class="num">${bb?(adapt||k==='day'||k==='busy'?b:bb)+' min':'non'}</td></tr>`).join('')+'</tbody>';
+
+  /* schedule svg */
+  drawSched(P, base, bb, adapt, ab.hours, st);
+
+  /* load */
+  const T = ab.today;
+  $('abLoad').innerHTML = `Aujourd’hui : <b>${num(T.snapshots)}</b> requêtes à l’open data de la Métropole et <b>${num(T.bike_fetches*2)}</b> à l’API non officielle (${num(T.bike_fetches)} relevés de vélos), plus quelques-unes en ouvrant des stations.`;
+
+  /* stars */
+  const sd = ab.stars||{}, tot = Object.values(sd).reduce((a,b)=>a+b,0);
+  const srow = (label,k,col) => { const n=sd[k]||0; return `<div class="starrow"><span class="s">${label}</span><span class="track"><b style="width:${tot?100*n/tot:0}%;background:${col}"></b></span><span class="n">${num(n)}</span></div>`; };
+  $('abStars').innerHTML = tot ? `<div class="starbar">${srow('★★★',3,'var(--ok)')}${srow('★★<i>★</i>',2,'var(--warn)')}${srow('★<i>★★</i>',1,'var(--bad)')}${srow('<span style="color:var(--ok);letter-spacing:0">✓ Révisé</span>',0,'var(--elec)')}${srow('<span style="color:var(--muted);letter-spacing:0">Sans vote</span>',-1,'var(--line)')}</div><p class="small" style="margin:8px 0 0">Sur les ${num(tot)} vélos garés au dernier relevé.</p>`
+    : '<p class="small">Les notes apparaissent après le prochain relevé des vélos.</p>';
+
+  /* storage */
+  const t = ab.tables;
+  const facts = [['Relevés des stations', t['station snapshots']], ['Mesures de stations', t['station readings']], ['Relevés de vélos', t['bike-number fetches']], ['Déplacements', t['bike moves']], ['Vélos suivis', t['bikes tracked']], ['Base de données', ab.db_bytes!=null ? (ab.db_bytes/1048576).toFixed(1).replace('.',',')+' Mo' : '–']];
+  $('abStore').innerHTML = facts.map(([k,v])=>`<div class="fact"><div class="k">${k}</div><div class="v">${typeof v==='number'?num(v):esc(v??'–')}</div></div>`).join('');
+  $('abWhere').textContent = (st.host==='docker' ? 'Dans ~/velov/data sur le Pi' : 'Dans le dossier velov de ce PC') + ' · gardé sans limite';
+  $('abFoot').innerHTML = `<span>Vélo'v Control ${esc(st.version||'')}</span><a href="https://velov.grandlyon.com" target="_blank" rel="noopener">velov.grandlyon.com</a><a href="https://github.com/yannlombard/cyclocity-api-doc" target="_blank" rel="noopener">Documentation communautaire de l’API Cyclocity</a><span>Sans lien avec JCDecaux ni la Métropole de Lyon.</span>`;
+}
+
+function drawSched(P, base, bb, adapt, hours, st){
+  const svg=$('abSched'), W=Math.max(640, svg.clientWidth||900), H=250, L=118, R=16;
+  svg.setAttribute('viewBox',`0 0 ${W} ${H}`);
+  const x = h => L + h/24*(W-L-R);
+  const ink=css('--ink'), mut=css('--muted'), line=css('--line'), acc=css('--accent'), sunk=css('--sunk');
+  const rowY = {st:34, bk:84}, bh=30;
+  let s = `<defs><pattern id="hatch" width="7" height="7" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="7" height="7" fill="${acc}" opacity=".10"/><rect width="3" height="7" fill="${acc}" opacity=".55"/></pattern></defs>`;
+  // hour grid
+  for(let h=0;h<=24;h+=3){ s+=`<line x1="${x(h)}" x2="${x(h)}" y1="22" y2="${H-24}" stroke="${line}" stroke-dasharray="${h%6?'2 4':'none'}"/>`;
+    s+=`<text x="${x(h)}" y="${H-8}" text-anchor="middle" font-size="12" fill="${mut}" font-family="IBM Plex Mono,monospace">${String(h%24).padStart(2,'0')}:00</text>`; }
+  const surf=css('--surface');
+  const band=(y,h0,h1,fill,label,lc)=>{ const w=x(h1)-x(h0), cx=(x(h0)+x(h1))/2, striped=fill.startsWith('url');
+    const tw=label.length*6.6+14;
+    return `<rect x="${x(h0)}" y="${y}" width="${w}" height="${bh}" rx="6" fill="${fill}"/>`
+      +(w>70?(striped?`<rect x="${cx-tw/2}" y="${y+6}" width="${tw}" height="${bh-12}" rx="9" fill="${surf}"/>`:'')
+        +`<text x="${cx}" y="${y+bh/2+4}" text-anchor="middle" font-size="12" font-weight="600" fill="${lc}">${label}</text>`:''); };
+  const night = adapt ? 'url(#hatch)' : acc;
+  [['st','Stations',base,Math.max(base,P.station_quiet_min)],['bk','N° de vélos',bb,Math.max(bb,P.bikes_quiet_min)]].forEach(([k,label,b,q])=>{
+    const y=rowY[k];
+    s+=`<text x="0" y="${y+bh/2+4}" font-size="13" font-weight="600" fill="${ink}">${label}</text>`;
+    if(!b){ s+=band(y,0,24,sunk,'arrêt',mut); return; }
+    const nl = adapt ? `${b}–${q} min` : `toutes les ${b} min`;
+    s+=band(y,0,P.day_start,night,nl,ink)+band(y,P.day_start,P.day_end,acc,`toutes les ${b} min`,'#fff')+band(y,P.day_end,24,night,nl,ink);
+  });
+  // what happened: per local hour
+  const yb=150, hb=56, maxS=60/base, maxB=bb?60/bb:4;
+  s+=`<text x="0" y="${yb+16}" font-size="12" fill="${mut}">24 dernières h</text><text x="0" y="${yb+31}" font-size="12" fill="${mut}">relevés stations / vélos</text>`;
+  s+=`<line x1="${L}" x2="${W-R}" y1="${yb+hb}" y2="${yb+hb}" stroke="${line}"/>`;
+  const cw=(W-L-R)/24;
+  (hours||[]).forEach(([t,ns,nb])=>{
+    const lh=new Date(t).toLocaleString('fr-FR',{hour:'2-digit',hour12:false,timeZone:'Europe/Paris'})|0;
+    const x0=x(lh)+cw*0.12, w=cw*0.36;
+    const h1=Math.min(1,ns/maxS)*hb, h2=Math.min(1,nb/maxB)*hb;
+    s+=`<rect x="${x0}" y="${yb+hb-h1}" width="${w}" height="${h1}" rx="2" fill="${ink}"><title>${hm(lh)}–${hm(lh+1)} : ${ns} relevés de stations</title></rect>`;
+    s+=`<rect x="${x0+w+cw*0.04}" y="${yb+hb-h2}" width="${w}" height="${h2}" rx="2" fill="${ink}" opacity=".45"><title>${hm(lh)}–${hm(lh+1)} : ${nb} relevés de vélos</title></rect>`;
+  });
+  // now marker
+  const n=new Date(), nh=+n.toLocaleString('fr-FR',{hour:'2-digit',hour12:false,timeZone:'Europe/Paris'})+ n.getMinutes()/60;
+  const nx=x(nh);
+  s+=`<line x1="${nx}" x2="${nx}" y1="16" y2="${H-24}" stroke="${ink}" stroke-width="1.5"/><circle cx="${nx}" cy="16" r="4" fill="${ink}"/>`;
+  const ci=st.collector.interval_s?Math.round(st.collector.interval_s/60):base;
+  const lab=`maintenant · stations toutes les ${ci} min${st.bikes_interval_min?' · vélos toutes les '+st.bikes_interval_min+' min':''}`;
+  const lx=Math.min(Math.max(nx, L+150), W-R-150);
+  s+=`<text x="${lx}" y="12" text-anchor="middle" font-size="11.5" font-weight="600" fill="${ink}">${lab}</text>`;
+  svg.innerHTML=s;
+}
+addEventListener('resize', ()=>{ if(view==='about') loadAbout(); });
+
+/* boot */
+(async function(){
+  let start='dash'; try{ start=localStorage.getItem('velovTab')||'dash'; }catch(e){}
+  show(start);
+  await refresh(); loadSeries(); loadToday();
+  const running = await loadJobs().catch(()=>false); if(running) pollJobs();
+  setInterval(refresh,5000);
+  setInterval(()=>{ loadSeries(); if(view==='dash') loadToday(); },60000);
+  setInterval(()=>{ if(view==='files') loadLog(); },15000);
+})();
+</script>
+</body>
+</html>
